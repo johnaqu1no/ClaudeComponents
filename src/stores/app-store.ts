@@ -13,7 +13,9 @@ export const initialState: AppState = {
   proxyPort: null,
   devServerUrl: null,
   selectedComponent: null,
+  selectedElement: null,
   taskHistory: [],
+  streamingLines: [],
   settingsOpen: false,
 };
 
@@ -37,15 +39,9 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         ),
       };
     case "ACCEPT_ALL":
-      return {
-        ...state,
-        diffs: state.diffs.map((d) => ({ ...d, accepted: true })),
-      };
+      return { ...state, diffs: [] };
     case "REJECT_ALL":
-      return {
-        ...state,
-        diffs: state.diffs.map((d) => ({ ...d, accepted: false })),
-      };
+      return { ...state, diffs: [] };
     case "SET_ERROR":
       return { ...state, error: action.error };
     case "SET_CLAUDE_AVAILABLE":
@@ -57,9 +53,9 @@ export function appReducer(state: AppState, action: AppAction): AppState {
     case "SET_DEV_SERVER_URL":
       return { ...state, devServerUrl: action.url };
     case "SELECT_COMPONENT":
-      return { ...state, selectedComponent: action.component };
+      return { ...state, selectedComponent: action.component, selectedElement: action.element ?? null };
     case "CLEAR_SELECTED_COMPONENT":
-      return { ...state, selectedComponent: null };
+      return { ...state, selectedComponent: null, selectedElement: null };
     case "ADD_TASK_HISTORY":
       return { ...state, taskHistory: [action.entry, ...state.taskHistory] };
     case "UPDATE_TASK_HISTORY":
@@ -71,6 +67,10 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       };
     case "CLEAR_TASK_HISTORY":
       return { ...state, taskHistory: [] };
+    case "APPEND_STREAM_LINE":
+      return { ...state, streamingLines: [...state.streamingLines, action.line] };
+    case "CLEAR_STREAM":
+      return { ...state, streamingLines: [] };
     case "SET_SETTINGS_OPEN":
       return { ...state, settingsOpen: action.open };
     case "LOAD_SETTINGS": {

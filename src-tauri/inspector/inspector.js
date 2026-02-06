@@ -86,6 +86,28 @@
     return null;
   }
 
+  function getElementContext(element) {
+    const tag = element.tagName ? element.tagName.toLowerCase() : null;
+    const classes = element.className && typeof element.className === 'string'
+      ? element.className.trim() : '';
+    const id = element.id || null;
+    const text = (element.textContent || '').trim();
+    const truncatedText = text.length > 60 ? text.slice(0, 60) + '...' : text;
+
+    // Build a short selector-like description
+    let selector = tag || '';
+    if (id) selector += '#' + id;
+    if (classes) selector += '.' + classes.split(/\s+/).join('.');
+
+    return {
+      tag: tag,
+      className: classes || null,
+      id: id,
+      textContent: truncatedText || null,
+      selector: selector,
+    };
+  }
+
   function getComponentInfo(element) {
     const fiber = getReactFiber(element);
     if (!fiber) return null;
@@ -97,11 +119,13 @@
     if (!name) return null;
 
     const source = getDebugSource(componentFiber);
+    const elementContext = getElementContext(element);
 
     return {
       componentName: name,
       fileName: source ? source.fileName : null,
       lineNumber: source ? source.lineNumber : null,
+      element: elementContext,
     };
   }
 
@@ -120,12 +144,8 @@
     const info = getComponentInfo(element);
     if (info) {
       let labelText = info.componentName;
-      if (info.fileName) {
-        const shortPath = info.fileName.split('/').slice(-2).join('/');
-        labelText += ' \u2014 ' + shortPath;
-        if (info.lineNumber) {
-          labelText += ':' + info.lineNumber;
-        }
+      if (info.element && info.element.selector) {
+        labelText += ' > ' + info.element.selector;
       }
       label.textContent = labelText;
 

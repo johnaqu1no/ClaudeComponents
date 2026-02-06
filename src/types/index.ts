@@ -43,10 +43,19 @@ export interface FileEntry {
   relative_path: string;
 }
 
+export interface ElementContext {
+  tag: string | null;
+  className: string | null;
+  id: string | null;
+  textContent: string | null;
+  selector: string;
+}
+
 export interface DetectedComponent {
   componentName: string;
   fileName: string | null;
   lineNumber: number | null;
+  element?: ElementContext | null;
 }
 
 export interface TaskHistoryEntry {
@@ -71,7 +80,9 @@ export interface AppState {
   proxyPort: number | null;
   devServerUrl: string | null;
   selectedComponent: ComponentInfo | null;
+  selectedElement: ElementContext | null;
   taskHistory: TaskHistoryEntry[];
+  streamingLines: string[];
   settingsOpen: boolean;
 }
 
@@ -89,11 +100,13 @@ export type AppAction =
   | { type: "SET_INSPECTOR_ACTIVE"; active: boolean }
   | { type: "SET_PROXY_PORT"; port: number | null }
   | { type: "SET_DEV_SERVER_URL"; url: string | null }
-  | { type: "SELECT_COMPONENT"; component: ComponentInfo | null }
+  | { type: "SELECT_COMPONENT"; component: ComponentInfo | null; element?: ElementContext | null }
   | { type: "CLEAR_SELECTED_COMPONENT" }
   | { type: "ADD_TASK_HISTORY"; entry: TaskHistoryEntry }
   | { type: "UPDATE_TASK_HISTORY"; id: string; updates: Partial<TaskHistoryEntry> }
   | { type: "CLEAR_TASK_HISTORY" }
+  | { type: "APPEND_STREAM_LINE"; line: string }
+  | { type: "CLEAR_STREAM" }
   | { type: "SET_SETTINGS_OPEN"; open: boolean }
   | { type: "LOAD_SETTINGS"; repoPath: string | null; devServerUrl: string | null }
   | { type: "RESET" };

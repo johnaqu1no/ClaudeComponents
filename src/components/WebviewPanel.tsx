@@ -82,7 +82,7 @@ export function WebviewPanel() {
         const detected: DetectedComponent = e.data.payload;
         if (detected.componentName) {
           const matched = matchComponent(detected, components);
-          dispatch({ type: "SELECT_COMPONENT", component: matched });
+          dispatch({ type: "SELECT_COMPONENT", component: matched, element: detected.element ?? null });
         } else {
           dispatch({
             type: "SET_ERROR",

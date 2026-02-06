@@ -110,20 +110,23 @@ fn delete_file(path: String) -> Result<(), String> {
 
 #[tauri::command]
 async fn execute_claude(
+    app: tauri::AppHandle,
     prompt: String,
     cwd: String,
     session_id: Option<String>,
 ) -> Result<serde_json::Value, String> {
     use std::process::Stdio;
-    use tokio::io::AsyncWriteExt;
+    use tauri::Emitter;
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
     use tokio::process::Command;
 
     let start = std::time::Instant::now();
 
     let mut args = vec![
         "-p".to_string(),
+        "--verbose".to_string(),
         "--output-format".to_string(),
-        "json".to_string(),
+        "stream-json".to_string(),
         "--allowedTools".to_string(),
         "Read,Edit,Write".to_string(),
     ];
@@ -148,22 +151,60 @@ async fn execute_claude(
             .write_all(prompt.as_bytes())
             .await
             .map_err(|e| format!("Failed to write to stdin: {}", e))?;
-        // stdin is dropped here, signaling EOF
     }
 
-    let output = child
-        .wait_with_output()
-        .await
-        .map_err(|e| format!("Failed to wait for claude: {}", e))?;
+    let stdout_pipe = child.stdout.take().unwrap();
+    let stderr_pipe = child.stderr.take().unwrap();
+
+    // Read stdout line by line, emitting each as a Tauri event
+    let app_clone = app.clone();
+    let stdout_task = tokio::spawn(async move {
+        let reader = BufReader::new(stdout_pipe);
+        let mut lines = reader.lines();
+        let mut collected: Vec<String> = Vec::new();
+        while let Ok(Some(line)) = lines.next_line().await {
+            let _ = app_clone.emit("claude-stream", &line);
+            collected.push(line);
+        }
+        collected
+    });
+
+    // Collect stderr
+    let stderr_task = tokio::spawn(async move {
+        let mut buf = String::new();
+        let mut reader = BufReader::new(stderr_pipe);
+        reader.read_to_string(&mut buf).await.ok();
+        buf
+    });
+
+    let status = child.wait().await.map_err(|e| format!("Failed to wait: {}", e))?;
+    let stdout_lines = stdout_task.await.map_err(|e| e.to_string())?;
+    let stderr = stderr_task.await.map_err(|e| e.to_string())?;
 
     let duration_ms = start.elapsed().as_millis() as u64;
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-    let exit_code = output.status.code().unwrap_or(-1);
+    let exit_code = status.code().unwrap_or(-1);
 
-    let parsed_session_id = serde_json::from_str::<serde_json::Value>(&stdout)
-        .ok()
-        .and_then(|v| v.get("session_id").and_then(|s| s.as_str().map(String::from)));
+    // Parse session_id and result from the stream-json output
+    let mut parsed_session_id: Option<String> = None;
+    let mut result_text = String::new();
+    for line in &stdout_lines {
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(line) {
+            if let Some(sid) = val.get("session_id").and_then(|s| s.as_str()) {
+                parsed_session_id = Some(sid.to_string());
+            }
+            if val.get("type").and_then(|t| t.as_str()) == Some("result") {
+                if let Some(r) = val.get("result").and_then(|r| r.as_str()) {
+                    result_text = r.to_string();
+                }
+            }
+        }
+    }
+
+    let stdout = if result_text.is_empty() {
+        stdout_lines.join("\n")
+    } else {
+        result_text
+    };
 
     Ok(serde_json::json!({
         "stdout": stdout,

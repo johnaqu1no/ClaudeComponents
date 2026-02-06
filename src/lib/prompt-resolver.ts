@@ -7,7 +7,7 @@ function extractFromNode(
   mentionIds: Set<string>
 ) {
   if (node.type === "mention" && node.attrs?.id) {
-    textParts.push(`@${node.attrs.id}`);
+    textParts.push(`@${node.attrs.label || node.attrs.id}`);
     mentionIds.add(node.attrs.id);
     return;
   }

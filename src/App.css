@@ -555,6 +555,58 @@
   margin: 0;
 }
 
+/* ========== Streaming output ========== */
+.streaming-output {
+  padding: 10px 14px;
+  max-height: 200px;
+  overflow-y: auto;
+  border-bottom: 1px solid #313244;
+  background: #11111b;
+}
+
+.stream-line {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #a6adc8;
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 1px 0;
+}
+
+.stream-line + .stream-line {
+  border-top: 1px solid rgba(49, 50, 68, 0.5);
+}
+
+/* ========== Source popover (hover on mention chip) ========== */
+.source-popover {
+  z-index: 900;
+  background: #1e1e2e;
+  border: 1px solid #45475a;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  width: 400px;
+  max-height: 300px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.source-popover-header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #313244;
+}
+
+.source-popover .source-preview-code {
+  flex: 1;
+  overflow-y: auto;
+  max-height: 240px;
+  margin: 0;
+}
+
 /* ========== Panel empty state ========== */
 .panel-empty-state {
   display: flex;

@@ -18,7 +18,10 @@ interface TaskEditorProps {
 export interface TaskEditorRef {
   getJSON: () => JSONContent | undefined;
   focus: () => void;
-  insertMention: (name: string) => void;
+  insertMention: (name: string, elementSelector?: string) => void;
+  clear: () => void;
+  getText: () => string;
+  setContent: (content: JSONContent) => void;
 }
 
 export const TaskEditor = forwardRef<TaskEditorRef, TaskEditorProps>(
@@ -108,16 +111,26 @@ export const TaskEditor = forwardRef<TaskEditorRef, TaskEditorProps>(
     useImperativeHandle(ref, () => ({
       getJSON: () => editor?.getJSON(),
       focus: () => editor?.commands.focus(),
-      insertMention: (name: string) => {
+      insertMention: (name: string, elementSelector?: string) => {
+        const label = elementSelector ? `${name} > ${elementSelector}` : name;
         editor
           ?.chain()
           .focus()
           .insertContent({
             type: "mention",
-            attrs: { id: name, label: name },
+            attrs: { id: name, label },
           })
           .insertContent(" ")
           .run();
+      },
+      clear: () => {
+        editor?.commands.clearContent();
+      },
+      getText: () => {
+        return editor?.getText() ?? "";
+      },
+      setContent: (content: JSONContent) => {
+        editor?.commands.setContent(content);
       },
     }));
 
