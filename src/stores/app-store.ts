@@ -1,0 +1,106 @@
+import { createContext, useContext, type Dispatch } from "react";
+import type { AppState, AppAction } from "../types";
+
+export const initialState: AppState = {
+  phase: "idle",
+  repoPath: null,
+  components: [],
+  diffs: [],
+  executionResult: null,
+  error: null,
+  claudeAvailable: null,
+  inspectorActive: false,
+  proxyPort: null,
+  devServerUrl: null,
+  selectedComponent: null,
+  taskHistory: [],
+  settingsOpen: false,
+};
+
+export function appReducer(state: AppState, action: AppAction): AppState {
+  switch (action.type) {
+    case "SET_PHASE":
+      return { ...state, phase: action.phase, error: null };
+    case "SET_REPO":
+      return { ...state, repoPath: action.path, phase: "scanning" };
+    case "SET_COMPONENTS":
+      return { ...state, components: action.components, phase: "ready" };
+    case "SET_DIFFS":
+      return { ...state, diffs: action.diffs, phase: "reviewing" };
+    case "SET_EXECUTION_RESULT":
+      return { ...state, executionResult: action.result };
+    case "UPDATE_DIFF":
+      return {
+        ...state,
+        diffs: state.diffs.map((d) =>
+          d.filePath === action.filePath ? { ...d, accepted: action.accepted } : d
+        ),
+      };
+    case "ACCEPT_ALL":
+      return {
+        ...state,
+        diffs: state.diffs.map((d) => ({ ...d, accepted: true })),
+      };
+    case "REJECT_ALL":
+      return {
+        ...state,
+        diffs: state.diffs.map((d) => ({ ...d, accepted: false })),
+      };
+    case "SET_ERROR":
+      return { ...state, error: action.error };
+    case "SET_CLAUDE_AVAILABLE":
+      return { ...state, claudeAvailable: action.available };
+    case "SET_INSPECTOR_ACTIVE":
+      return { ...state, inspectorActive: action.active };
+    case "SET_PROXY_PORT":
+      return { ...state, proxyPort: action.port };
+    case "SET_DEV_SERVER_URL":
+      return { ...state, devServerUrl: action.url };
+    case "SELECT_COMPONENT":
+      return { ...state, selectedComponent: action.component };
+    case "CLEAR_SELECTED_COMPONENT":
+      return { ...state, selectedComponent: null };
+    case "ADD_TASK_HISTORY":
+      return { ...state, taskHistory: [action.entry, ...state.taskHistory] };
+    case "UPDATE_TASK_HISTORY":
+      return {
+        ...state,
+        taskHistory: state.taskHistory.map((e) =>
+          e.id === action.id ? { ...e, ...action.updates } : e
+        ),
+      };
+    case "SET_SETTINGS_OPEN":
+      return { ...state, settingsOpen: action.open };
+    case "LOAD_SETTINGS": {
+      const next: AppState = {
+        ...state,
+        devServerUrl: action.devServerUrl,
+      };
+      if (action.repoPath) {
+        next.repoPath = action.repoPath;
+        next.phase = "scanning";
+      }
+      return next;
+    }
+    case "RESET":
+      return {
+        ...initialState,
+        claudeAvailable: state.claudeAvailable,
+        devServerUrl: state.devServerUrl,
+        proxyPort: state.proxyPort,
+      };
+    default:
+      return state;
+  }
+}
+
+export const AppStateContext = createContext<AppState>(initialState);
+export const AppDispatchContext = createContext<Dispatch<AppAction>>(() => {});
+
+export function useAppState() {
+  return useContext(AppStateContext);
+}
+
+export function useAppDispatch() {
+  return useContext(AppDispatchContext);
+}
