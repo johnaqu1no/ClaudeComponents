@@ -26,7 +26,7 @@ export function appReducer(state: AppState, action: AppAction): AppState {
     case "SET_COMPONENTS":
       return { ...state, components: action.components, phase: "ready" };
     case "SET_DIFFS":
-      return { ...state, diffs: action.diffs, phase: "reviewing" };
+      return { ...state, diffs: action.diffs };
     case "SET_EXECUTION_RESULT":
       return { ...state, executionResult: action.result };
     case "UPDATE_DIFF":
@@ -69,6 +69,8 @@ export function appReducer(state: AppState, action: AppAction): AppState {
           e.id === action.id ? { ...e, ...action.updates } : e
         ),
       };
+    case "CLEAR_TASK_HISTORY":
+      return { ...state, taskHistory: [] };
     case "SET_SETTINGS_OPEN":
       return { ...state, settingsOpen: action.open };
     case "LOAD_SETTINGS": {

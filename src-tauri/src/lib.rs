@@ -109,6 +109,72 @@ fn delete_file(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn execute_claude(
+    prompt: String,
+    cwd: String,
+    session_id: Option<String>,
+) -> Result<serde_json::Value, String> {
+    use std::process::Stdio;
+    use tokio::io::AsyncWriteExt;
+    use tokio::process::Command;
+
+    let start = std::time::Instant::now();
+
+    let mut args = vec![
+        "-p".to_string(),
+        "--output-format".to_string(),
+        "json".to_string(),
+        "--allowedTools".to_string(),
+        "Read,Edit,Write".to_string(),
+    ];
+
+    if let Some(sid) = &session_id {
+        args.push("--resume".to_string());
+        args.push(sid.clone());
+    }
+
+    let mut child = Command::new("claude")
+        .args(&args)
+        .current_dir(&cwd)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Failed to spawn claude: {}", e))?;
+
+    // Write prompt to stdin and drop to close the pipe
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin
+            .write_all(prompt.as_bytes())
+            .await
+            .map_err(|e| format!("Failed to write to stdin: {}", e))?;
+        // stdin is dropped here, signaling EOF
+    }
+
+    let output = child
+        .wait_with_output()
+        .await
+        .map_err(|e| format!("Failed to wait for claude: {}", e))?;
+
+    let duration_ms = start.elapsed().as_millis() as u64;
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let exit_code = output.status.code().unwrap_or(-1);
+
+    let parsed_session_id = serde_json::from_str::<serde_json::Value>(&stdout)
+        .ok()
+        .and_then(|v| v.get("session_id").and_then(|s| s.as_str().map(String::from)));
+
+    Ok(serde_json::json!({
+        "stdout": stdout,
+        "stderr": stderr,
+        "exitCode": exit_code,
+        "durationMs": duration_ms,
+        "sessionId": parsed_session_id,
+    }))
+}
+
+#[tauri::command]
 async fn start_inspector_proxy(dev_server_url: String) -> Result<u16, String> {
     proxy::start_proxy(dev_server_url).await
 }
@@ -131,6 +197,7 @@ pub fn run() {
             snapshot_files,
             write_file_contents,
             delete_file,
+            execute_claude,
             start_inspector_proxy,
             stop_inspector_proxy,
         ])

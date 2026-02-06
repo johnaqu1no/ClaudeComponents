@@ -449,6 +449,17 @@
   gap: 8px;
 }
 
+.task-history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.task-history-actions {
+  display: flex;
+  gap: 4px;
+}
+
 .task-history-empty {
   color: #585b70;
   font-size: 13px;
@@ -471,6 +482,11 @@
   border-radius: 6px;
   background: #1e1e2e;
   border: 1px solid #313244;
+  cursor: pointer;
+}
+
+.task-history-item:hover {
+  border-color: #45475a;
 }
 
 .task-history-item.running {
@@ -517,6 +533,26 @@
   margin-top: 2px;
   border-top-color: #89b4fa;
   border-color: rgba(137, 180, 250, 0.2);
+}
+
+.task-history-output {
+  margin-top: 8px;
+  background: #11111b;
+  border-radius: 6px;
+  padding: 10px 12px;
+  overflow-x: auto;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.task-history-output pre {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #a6adc8;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
 }
 
 /* ========== Panel empty state ========== */

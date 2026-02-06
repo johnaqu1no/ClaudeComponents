@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useAppState } from "../stores/app-store";
 import type { TaskHistoryEntry } from "../types";
 
@@ -21,6 +22,7 @@ function StatusIcon({ status }: { status: TaskHistoryEntry["status"] }) {
 
 export function TaskHistory() {
   const { taskHistory } = useAppState();
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   if (taskHistory.length === 0) {
     return (
@@ -33,7 +35,11 @@ export function TaskHistory() {
   return (
     <div className="task-history">
       {taskHistory.map((entry) => (
-        <div key={entry.id} className={`task-history-item ${entry.status}`}>
+        <div
+          key={entry.id}
+          className={`task-history-item ${entry.status}${expandedId === entry.id ? " expanded" : ""}`}
+          onClick={() => setExpandedId(expandedId === entry.id ? null : entry.id)}
+        >
           <StatusIcon status={entry.status} />
           <div className="task-history-content">
             <span className="task-history-text">{entry.taskText}</span>
@@ -44,6 +50,11 @@ export function TaskHistory() {
               {entry.diffs.length > 0 &&
                 ` \u00b7 ${entry.diffs.length} file${entry.diffs.length !== 1 ? "s" : ""}`}
             </span>
+            {expandedId === entry.id && entry.result && (
+              <div className="task-history-output">
+                <pre>{entry.result.stdout || entry.result.stderr || "No output"}</pre>
+              </div>
+            )}
           </div>
         </div>
       ))}

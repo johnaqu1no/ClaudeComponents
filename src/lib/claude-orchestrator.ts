@@ -1,4 +1,5 @@
 import { Command } from "@tauri-apps/plugin-shell";
+import { invoke } from "@tauri-apps/api/core";
 import type { ClaudeExecutionResult } from "../types";
 
 export async function checkClaudeAvailable(): Promise<boolean> {
@@ -13,26 +14,26 @@ export async function checkClaudeAvailable(): Promise<boolean> {
 
 export async function executeClaudeCode(
   prompt: string,
-  cwd: string
+  cwd: string,
+  sessionId?: string
 ): Promise<ClaudeExecutionResult> {
-  const startTime = Date.now();
-
-  const args = [
-    "-p",
-    "--output-format",
-    "json",
-    "--allowedTools",
-    "Read,Edit,Write",
+  const result = await invoke<{
+    stdout: string;
+    stderr: string;
+    exitCode: number;
+    durationMs: number;
+    sessionId: string | null;
+  }>("execute_claude", {
     prompt,
-  ];
-
-  const cmd = Command.create("claude-cli", args, { cwd });
-  const output = await cmd.execute();
+    cwd,
+    sessionId: sessionId ?? null,
+  });
 
   return {
-    stdout: output.stdout,
-    stderr: output.stderr,
-    exitCode: output.code ?? -1,
-    durationMs: Date.now() - startTime,
+    stdout: result.stdout,
+    stderr: result.stderr,
+    exitCode: result.exitCode,
+    durationMs: result.durationMs,
+    sessionId: result.sessionId ?? undefined,
   };
 }

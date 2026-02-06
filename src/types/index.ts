@@ -30,6 +30,7 @@ export interface ClaudeExecutionResult {
   stderr: string;
   exitCode: number;
   durationMs: number;
+  sessionId?: string;
 }
 
 export interface FileSnapshot {
@@ -92,6 +93,7 @@ export type AppAction =
   | { type: "CLEAR_SELECTED_COMPONENT" }
   | { type: "ADD_TASK_HISTORY"; entry: TaskHistoryEntry }
   | { type: "UPDATE_TASK_HISTORY"; id: string; updates: Partial<TaskHistoryEntry> }
+  | { type: "CLEAR_TASK_HISTORY" }
   | { type: "SET_SETTINGS_OPEN"; open: boolean }
   | { type: "LOAD_SETTINGS"; repoPath: string | null; devServerUrl: string | null }
   | { type: "RESET" };

@@ -28,6 +28,7 @@ function AppInner() {
   const [state, dispatch] = useReducer(appReducer, initialState);
   const editorRef = useRef<TaskEditorRef>(null);
   const snapshotRef = useRef<Map<string, FileSnapshot>>(new Map());
+  const sessionIdRef = useRef<string | undefined>(undefined);
   const [rightPanelWidth, setRightPanelWidth] = useState(380);
   const [isResizing, setIsResizing] = useState(false);
   const resizingRef = useRef(false);
@@ -129,10 +130,18 @@ function AppInner() {
 
   const handleSubmit = useCallback(
     async (doc: JSONContent) => {
-      if (!state.repoPath || state.phase !== "ready") return;
+      if (!state.repoPath || (state.phase !== "ready" && state.phase !== "reviewing")) return;
 
-      const prompt = resolvePrompt(doc, componentMap);
+      let prompt = resolvePrompt(doc, componentMap);
       if (!prompt) return;
+
+      // Include selected component if not already mentioned in the prompt
+      if (
+        state.selectedComponent &&
+        !prompt.includes(`Component: ${state.selectedComponent.name}\n`)
+      ) {
+        prompt += `\n\nSelected Component:\n\nComponent: ${state.selectedComponent.name}\nFile: ${state.selectedComponent.relativePath}\n\`\`\`tsx\n${state.selectedComponent.sourceText}\n\`\`\`\n`;
+      }
 
       const taskId = crypto.randomUUID();
       const taskText =
@@ -154,11 +163,15 @@ function AppInner() {
 
       try {
         snapshotRef.current = await createSnapshot(state.repoPath);
-        const result = await executeClaudeCode(prompt, state.repoPath);
+        const result = await executeClaudeCode(prompt, state.repoPath, sessionIdRef.current);
+        if (result.sessionId) {
+          sessionIdRef.current = result.sessionId;
+        }
         dispatch({ type: "SET_EXECUTION_RESULT", result });
 
         const diffs = await computeDiffs(state.repoPath, snapshotRef.current);
         dispatch({ type: "SET_DIFFS", diffs });
+        dispatch({ type: "SET_PHASE", phase: "ready" });
 
         dispatch({
           type: "UPDATE_TASK_HISTORY",
@@ -178,11 +191,11 @@ function AppInner() {
         });
       }
     },
-    [state.repoPath, state.phase, componentMap]
+    [state.repoPath, state.phase, componentMap, state.selectedComponent]
   );
 
   const handleNewTask = useCallback(() => {
-    dispatch({ type: "SET_PHASE", phase: "ready" });
+    dispatch({ type: "SET_DIFFS", diffs: [] });
     setTimeout(() => editorRef.current?.focus(), 100);
   }, []);
 
@@ -190,7 +203,16 @@ function AppInner() {
     editorRef.current?.insertMention(name);
   }, []);
 
-  const showDiffPanel = state.phase === "reviewing" && state.diffs.length > 0;
+  // Auto-insert @mention when a component is selected via inspector
+  const prevSelectedRef = useRef<ComponentInfo | null>(null);
+  useEffect(() => {
+    if (state.selectedComponent && state.selectedComponent !== prevSelectedRef.current) {
+      editorRef.current?.insertMention(state.selectedComponent.name);
+    }
+    prevSelectedRef.current = state.selectedComponent;
+  }, [state.selectedComponent]);
+
+  const showDiffPanel = state.diffs.length > 0;
 
   return (
     <AppStateContext.Provider value={state}>
@@ -268,7 +290,7 @@ function AppInner() {
             <div className="panel-right" style={{ width: rightPanelWidth }}>
               <SourcePreview onInsertMention={handleInsertMention} />
 
-              {(state.phase === "ready" || state.phase === "executing") && (
+              {(state.phase === "ready" || state.phase === "executing" || state.phase === "reviewing") && (
                 <div className="editor-section">
                   <TaskEditor
                     ref={editorRef}
@@ -327,7 +349,23 @@ function AppInner() {
               )}
 
               <div className="task-history-section">
-                <div className="section-label">History</div>
+                <div className="task-history-header">
+                  <span className="section-label">History</span>
+                  <div className="task-history-actions">
+                    {state.taskHistory.length > 0 && (
+                      <button
+                        className="btn-ghost"
+                        onClick={() => {
+                          sessionIdRef.current = undefined;
+                          dispatch({ type: "CLEAR_TASK_HISTORY" });
+                        }}
+                        title="Clear conversation context and history"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+                </div>
                 <TaskHistory />
               </div>
             </div>
