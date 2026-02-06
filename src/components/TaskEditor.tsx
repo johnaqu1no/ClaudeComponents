@@ -136,7 +136,7 @@ export const TaskEditor = forwardRef<TaskEditorRef, TaskEditorProps>(
 
     const handleKeyDown = useCallback(
       (e: React.KeyboardEvent) => {
-        if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+        if (e.key === "Enter" && !e.shiftKey) {
           e.preventDefault();
           const json = editor?.getJSON();
           if (json) onSubmit(json);

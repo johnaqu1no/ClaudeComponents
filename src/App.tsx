@@ -61,6 +61,8 @@ function AppInner() {
   const [rightPanelWidth, setRightPanelWidth] = useState(380);
   const [isResizing, setIsResizing] = useState(false);
   const resizingRef = useRef(false);
+  const [autoAccept, setAutoAccept] = useState(false);
+  const autoAcceptRef = useRef(false);
 
   // Hover popover for mention chips
   const [hoveredComponent, setHoveredComponent] = useState<ComponentInfo | null>(null);
@@ -239,6 +241,10 @@ function AppInner() {
         dispatch({ type: "SET_DIFFS", diffs });
         dispatch({ type: "SET_PHASE", phase: "ready" });
         dispatch({ type: "CLEAR_STREAM" });
+
+        if (autoAcceptRef.current && diffs.length > 0) {
+          dispatch({ type: "ACCEPT_ALL" });
+        }
 
         dispatch({
           type: "UPDATE_TASK_HISTORY",
@@ -454,12 +460,18 @@ function AppInner() {
                         "Run with Claude"
                       )}
                     </button>
-                    <span className="shortcut-hint">
-                      {navigator.platform?.includes("Mac")
-                        ? "\u2318"
-                        : "Ctrl+"}
-                      Enter
-                    </span>
+                    <span className="shortcut-hint">Enter</span>
+                    <label className="auto-accept-toggle" title="Automatically accept all changes without review">
+                      <input
+                        type="checkbox"
+                        checked={autoAccept}
+                        onChange={(e) => {
+                          setAutoAccept(e.target.checked);
+                          autoAcceptRef.current = e.target.checked;
+                        }}
+                      />
+                      <span>Auto-accept</span>
+                    </label>
                     <button
                       className="toolbar-icon-btn"
                       style={{ marginLeft: "auto" }}

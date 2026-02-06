@@ -439,6 +439,25 @@
   border-radius: 3px;
 }
 
+.auto-accept-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: #6c7086;
+  cursor: pointer;
+  user-select: none;
+}
+
+.auto-accept-toggle input[type="checkbox"] {
+  accent-color: #6366f1;
+  cursor: pointer;
+}
+
+.auto-accept-toggle:hover {
+  color: #a6adc8;
+}
+
 /* ========== Task History ========== */
 .task-history-section {
   padding: 12px 14px;
