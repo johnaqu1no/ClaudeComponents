@@ -230,6 +230,15 @@
       enableInspector();
     } else if (e.data && e.data.type === 'disable-inspector') {
       disableInspector();
+    } else if (e.data && e.data.type === 'get-location') {
+      window.parent.postMessage({
+        type: 'current-location',
+        path: location.pathname + location.search + location.hash,
+        scrollX: window.scrollX,
+        scrollY: window.scrollY,
+      }, '*');
+    } else if (e.data && e.data.type === 'restore-scroll') {
+      window.scrollTo(e.data.scrollX || 0, e.data.scrollY || 0);
     }
   });
 

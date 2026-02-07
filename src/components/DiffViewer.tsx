@@ -9,6 +9,7 @@ export function DiffViewer() {
 
   const handleAcceptAll = useCallback(() => {
     dispatch({ type: "ACCEPT_ALL" });
+    window.dispatchEvent(new Event("reload-webview"));
   }, [dispatch]);
 
   const handleRejectAll = useCallback(async () => {

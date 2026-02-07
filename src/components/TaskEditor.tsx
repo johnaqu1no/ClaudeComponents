@@ -12,7 +12,6 @@ import tippy, { type Instance as TippyInstance } from "tippy.js";
 interface TaskEditorProps {
   components: ComponentInfo[];
   onSubmit: (json: JSONContent) => void;
-  disabled?: boolean;
 }
 
 export interface TaskEditorRef {
@@ -25,7 +24,7 @@ export interface TaskEditorRef {
 }
 
 export const TaskEditor = forwardRef<TaskEditorRef, TaskEditorProps>(
-  ({ components, onSubmit, disabled }, ref) => {
+  ({ components, onSubmit }, ref) => {
     const componentMapRef = useRef(components);
     componentMapRef.current = components;
 
@@ -105,7 +104,7 @@ export const TaskEditor = forwardRef<TaskEditorRef, TaskEditorProps>(
           },
         }),
       ],
-      editable: !disabled,
+      editable: true,
     });
 
     useImperativeHandle(ref, () => ({

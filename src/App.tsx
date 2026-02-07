@@ -21,7 +21,7 @@ import { createSnapshot, computeDiffs } from "./lib/diff-engine";
 import { loadSettings, saveSettings } from "./lib/settings";
 import { listen } from "@tauri-apps/api/event";
 import type { JSONContent } from "@tiptap/react";
-import type { ComponentInfo, FileSnapshot } from "./types";
+import type { ComponentInfo, FileSnapshot, QueuedMessage } from "./types";
 import "./App.css";
 
 function parseStreamLine(line: string): string | null {
@@ -63,6 +63,9 @@ function AppInner() {
   const resizingRef = useRef(false);
   const [autoAccept, setAutoAccept] = useState(false);
   const autoAcceptRef = useRef(false);
+
+  // Message queue
+  const [queue, setQueue] = useState<QueuedMessage[]>([]);
 
   // Hover popover for mention chips
   const [hoveredComponent, setHoveredComponent] = useState<ComponentInfo | null>(null);
@@ -177,19 +180,12 @@ function AppInner() {
     };
   }, [state.phase, state.repoPath]);
 
-  const handleSubmit = useCallback(
-    async (doc: JSONContent) => {
-      if (!state.repoPath || (state.phase !== "ready" && state.phase !== "reviewing")) return;
-
+  // Build the fully resolved prompt from a doc + current context
+  const buildPrompt = useCallback(
+    (doc: JSONContent): string | null => {
       let prompt = resolvePrompt(doc, componentMap);
-      if (!prompt) return;
+      if (!prompt) return null;
 
-      // Save to prompt history and clear editor
-      promptHistoryRef.current.unshift(doc);
-      historyIndexRef.current = -1;
-      editorRef.current?.clear();
-
-      // Include selected component and element context
       if (
         state.selectedComponent &&
         !prompt.includes(`Component: ${state.selectedComponent.name}\n`)
@@ -209,6 +205,16 @@ function AppInner() {
         }
         prompt += "\n";
       }
+
+      return prompt;
+    },
+    [componentMap, state.selectedComponent, state.selectedElement]
+  );
+
+  // Core execution logic — runs a fully resolved prompt
+  const executeTask = useCallback(
+    async (prompt: string) => {
+      if (!state.repoPath) return;
 
       const taskId = crypto.randomUUID();
       const taskText =
@@ -244,6 +250,7 @@ function AppInner() {
 
         if (autoAcceptRef.current && diffs.length > 0) {
           dispatch({ type: "ACCEPT_ALL" });
+          window.dispatchEvent(new Event("reload-webview"));
         }
 
         dispatch({
@@ -265,8 +272,52 @@ function AppInner() {
         });
       }
     },
-    [state.repoPath, state.phase, componentMap, state.selectedComponent, state.selectedElement]
+    [state.repoPath]
   );
+
+  const handleSubmit = useCallback(
+    async (doc: JSONContent) => {
+      if (!state.repoPath) return;
+
+      const prompt = buildPrompt(doc);
+      if (!prompt) return;
+
+      // Save to prompt history and clear editor
+      promptHistoryRef.current.unshift(doc);
+      historyIndexRef.current = -1;
+      editorRef.current?.clear();
+
+      // If currently executing, queue the message instead
+      if (state.phase === "executing") {
+        const promptText = prompt.length > 80 ? prompt.slice(0, 80) + "..." : prompt;
+        setQueue((prev) => [
+          ...prev,
+          {
+            id: crypto.randomUUID(),
+            doc,
+            prompt,
+            promptText,
+            timestamp: Date.now(),
+          },
+        ]);
+        return;
+      }
+
+      if (state.phase !== "ready" && state.phase !== "reviewing") return;
+
+      await executeTask(prompt);
+    },
+    [state.repoPath, state.phase, buildPrompt, executeTask]
+  );
+
+  // Queue drain: when phase becomes ready and queue is non-empty, pop and execute
+  useEffect(() => {
+    if (state.phase === "ready" && queue.length > 0) {
+      const [next, ...rest] = queue;
+      setQueue(rest);
+      executeTask(next.prompt);
+    }
+  }, [state.phase, queue, executeTask]);
 
   // Up/Down arrow prompt history
   const handleEditorKeyDown = useCallback(
@@ -437,7 +488,6 @@ function AppInner() {
                     ref={editorRef}
                     components={state.components}
                     onSubmit={handleSubmit}
-                    disabled={state.phase === "executing"}
                   />
                   <div className="editor-actions">
                     <button
@@ -446,15 +496,12 @@ function AppInner() {
                         const json = editorRef.current?.getJSON();
                         if (json) handleSubmit(json);
                       }}
-                      disabled={
-                        state.phase === "executing" ||
-                        state.claudeAvailable === false
-                      }
+                      disabled={state.claudeAvailable === false}
                     >
                       {state.phase === "executing" ? (
                         <>
                           <span className="spinner-small" />
-                          Running...
+                          Queue
                         </>
                       ) : (
                         "Run with Claude"
@@ -485,6 +532,51 @@ function AppInner() {
                         <circle cx="12" cy="12" r="3" />
                       </svg>
                     </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Message queue */}
+              {queue.length > 0 && (
+                <div className="message-queue">
+                  <div className="queue-header">
+                    <span className="section-label">Queue ({queue.length})</span>
+                    <button
+                      className="btn-ghost"
+                      onClick={() => setQueue([])}
+                    >
+                      Clear All
+                    </button>
+                  </div>
+                  <div className="queue-items">
+                    {queue.map((item, i) => (
+                      <div
+                        key={item.id}
+                        className="queue-item"
+                        onDoubleClick={() => {
+                          // Remove from queue and put back in editor for editing
+                          setQueue((prev) => prev.filter((q) => q.id !== item.id));
+                          editorRef.current?.setContent(item.doc);
+                          editorRef.current?.focus();
+                        }}
+                      >
+                        <span className="queue-item-number">{i + 1}</span>
+                        <span className="queue-item-text" title={item.promptText}>
+                          {item.promptText}
+                        </span>
+                        <button
+                          className="queue-item-cancel"
+                          onClick={() =>
+                            setQueue((prev) => prev.filter((q) => q.id !== item.id))
+                          }
+                          title="Remove from queue"
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M18 6L6 18M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}

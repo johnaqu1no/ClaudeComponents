@@ -58,6 +58,14 @@ export interface DetectedComponent {
   element?: ElementContext | null;
 }
 
+export interface QueuedMessage {
+  id: string;
+  doc: import("@tiptap/react").JSONContent;
+  prompt: string;
+  promptText: string;
+  timestamp: number;
+}
+
 export interface TaskHistoryEntry {
   id: string;
   taskText: string;

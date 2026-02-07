@@ -11,11 +11,23 @@ export function WebviewPanel() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const lastLocationRef = useRef<{ path: string; scrollX: number; scrollY: number } | null>(null);
+  const pendingReloadRef = useRef(false);
 
   const reloadIframe = useCallback(() => {
-    if (iframeRef.current) {
-      setReloadKey((k) => k + 1);
-    }
+    if (!iframeRef.current) return;
+
+    // Ask the iframe for its current location before reloading
+    pendingReloadRef.current = true;
+    iframeRef.current.contentWindow?.postMessage({ type: "get-location" }, "*");
+
+    // Fallback: if iframe doesn't respond within 200ms, reload anyway
+    setTimeout(() => {
+      if (pendingReloadRef.current) {
+        pendingReloadRef.current = false;
+        setReloadKey((k) => k + 1);
+      }
+    }, 200);
   }, []);
 
   // Ctrl+R / Cmd+R to reload the webview
@@ -75,13 +87,57 @@ export function WebviewPanel() {
     );
   }, [inspectorActive, proxyPort]);
 
+  // Listen for current-location response from iframe (navigation preservation)
+  useEffect(() => {
+    function handleLocationMessage(e: MessageEvent) {
+      if (e.data?.type === "current-location") {
+        lastLocationRef.current = {
+          path: e.data.path || "/",
+          scrollX: e.data.scrollX || 0,
+          scrollY: e.data.scrollY || 0,
+        };
+        if (pendingReloadRef.current) {
+          pendingReloadRef.current = false;
+          setReloadKey((k) => k + 1);
+        }
+      }
+    }
+    window.addEventListener("message", handleLocationMessage);
+    return () => window.removeEventListener("message", handleLocationMessage);
+  }, []);
+
+  // Restore scroll position after iframe loads
+  const handleIframeLoad = useCallback(() => {
+    if (!lastLocationRef.current || !iframeRef.current) return;
+    const { scrollX, scrollY } = lastLocationRef.current;
+    if (scrollX || scrollY) {
+      // Small delay to let the page render before scrolling
+      setTimeout(() => {
+        iframeRef.current?.contentWindow?.postMessage(
+          { type: "restore-scroll", scrollX, scrollY },
+          "*"
+        );
+      }, 100);
+    }
+  }, []);
+
   // Listen for component selection from iframe
   useEffect(() => {
     function handleMessage(e: MessageEvent) {
       if (e.data?.type === "component-selected") {
         const detected: DetectedComponent = e.data.payload;
         if (detected.componentName) {
-          const matched = matchComponent(detected, components);
+          const matched = matchComponent(detected, components) ?? {
+            name: detected.componentName,
+            filePath: detected.fileName || "",
+            relativePath: detected.fileName
+              ? detected.fileName.split("/").slice(-2).join("/")
+              : "",
+            exportType: "named" as const,
+            startLine: detected.lineNumber || 0,
+            endLine: detected.lineNumber || 0,
+            sourceText: "",
+          };
           dispatch({ type: "SELECT_COMPONENT", component: matched, element: detected.element ?? null });
         } else {
           dispatch({
@@ -147,10 +203,11 @@ export function WebviewPanel() {
         <iframe
           key={reloadKey}
           ref={iframeRef}
-          src={`http://localhost:${proxyPort}`}
+          src={`http://localhost:${proxyPort}${lastLocationRef.current?.path || ""}`}
           className="webview-iframe"
           title="App Preview"
           sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+          onLoad={handleIframeLoad}
         />
       )}
     </div>
