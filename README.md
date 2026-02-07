@@ -23,7 +23,7 @@ __This is a free concept program made with Claude and pure thinking. There are n
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/claude-components.git
+git clone https://github.com/johnaqu1no/claude-components.git
 cd claude-components
 
 # Install frontend dependencies
