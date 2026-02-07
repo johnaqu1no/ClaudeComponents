@@ -243,7 +243,7 @@ function AppInner() {
 
       try {
         snapshotRef.current = await createSnapshot(state.repoPath);
-        const result = await executeClaudeCode(prompt, state.repoPath, sessionIdRef.current);
+        let result = await executeClaudeCode(prompt, state.repoPath, sessionIdRef.current);
         if (result.sessionId) {
           sessionIdRef.current = result.sessionId;
         }
@@ -253,7 +253,38 @@ function AppInner() {
           setContextTokens((prev) => (prev ?? 0) + turnTokens);
         }
 
-        const diffs = await computeDiffs(state.repoPath, snapshotRef.current);
+        let diffs = await computeDiffs(state.repoPath, snapshotRef.current);
+
+        // Auto-continue: if Claude planned but made no changes, retry once
+        if (
+          result.exitCode === 0 &&
+          diffs.length === 0 &&
+          sessionIdRef.current
+        ) {
+          dispatch({
+            type: "APPEND_STREAM_LINE",
+            line: "No changes detected — continuing with implementation...",
+          });
+
+          snapshotRef.current = await createSnapshot(state.repoPath);
+          const retryResult = await executeClaudeCode(
+            "Do not plan or ask questions. Implement the changes now.",
+            state.repoPath,
+            sessionIdRef.current
+          );
+          if (retryResult.sessionId) {
+            sessionIdRef.current = retryResult.sessionId;
+          }
+          result = retryResult;
+          dispatch({ type: "SET_EXECUTION_RESULT", result: retryResult });
+          const retryTokens =
+            (retryResult.inputTokens ?? 0) + (retryResult.outputTokens ?? 0);
+          if (retryTokens > 0) {
+            setContextTokens((prev) => (prev ?? 0) + retryTokens);
+          }
+          diffs = await computeDiffs(state.repoPath, snapshotRef.current);
+        }
+
         dispatch({ type: "SET_DIFFS", diffs });
         dispatch({ type: "SET_PHASE", phase: "ready" });
         dispatch({ type: "CLEAR_STREAM" });

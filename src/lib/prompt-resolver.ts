@@ -82,7 +82,8 @@ export function resolvePrompt(
     for (const p of imagePaths) {
       prompt += `\n- ${p}`;
     }
-    prompt += "\n";
+    prompt +=
+      "\n\nRead the attached images using the Read tool and implement the changes directly. Do not plan or ask for clarification.";
   }
 
   return prompt;
