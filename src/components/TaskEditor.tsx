@@ -10,7 +10,7 @@ import type { ComponentInfo } from "../types";
 import type { JSONContent } from "@tiptap/react";
 import { ReactRenderer } from "@tiptap/react";
 import tippy, { type Instance as TippyInstance } from "tippy.js";
-import { writeFile, mkdir } from "@tauri-apps/plugin-fs";
+import { invoke } from "@tauri-apps/api/core";
 
 interface TaskEditorProps {
   components: ComponentInfo[];
@@ -186,10 +186,12 @@ export const TaskEditor = forwardRef<TaskEditorRef, TaskEditorProps>(
                 .run();
             }, 0);
 
-            // Save file to disk asynchronously
+            // Save file to disk via Rust backend
             bufferPromise.then(async (buffer) => {
-              await mkdir(dirPath, { recursive: true });
-              await writeFile(filePath, new Uint8Array(buffer));
+              await invoke("write_binary_file", {
+                path: filePath,
+                data: Array.from(new Uint8Array(buffer)),
+              });
             }).catch((err) => {
               console.error("Failed to save pasted image:", err);
             });

@@ -109,6 +109,15 @@ fn delete_file(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn write_binary_file(path: String, data: Vec<u8>) -> Result<(), String> {
+    let file_path = Path::new(&path);
+    if let Some(parent) = file_path.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("Failed to create dirs: {}", e))?;
+    }
+    fs::write(&path, &data).map_err(|e| format!("Failed to write {}: {}", path, e))
+}
+
+#[tauri::command]
 async fn execute_claude(
     app: tauri::AppHandle,
     prompt: String,
@@ -249,6 +258,7 @@ pub fn run() {
             read_file_contents,
             snapshot_files,
             write_file_contents,
+            write_binary_file,
             delete_file,
             execute_claude,
             start_inspector_proxy,
