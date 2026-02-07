@@ -24,6 +24,11 @@ import type { JSONContent } from "@tiptap/react";
 import type { ComponentInfo, FileSnapshot, QueuedMessage } from "./types";
 import "./App.css";
 
+function formatTokens(n: number): string {
+  if (n >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, "") + "K";
+  return String(n);
+}
+
 function parseStreamLine(line: string): string | null {
   try {
     const data = JSON.parse(line);
@@ -63,6 +68,7 @@ function AppInner() {
   const resizingRef = useRef(false);
   const [autoAccept, setAutoAccept] = useState(false);
   const autoAcceptRef = useRef(false);
+  const [contextTokens, setContextTokens] = useState<number | null>(null);
 
   // Message queue
   const [queue, setQueue] = useState<QueuedMessage[]>([]);
@@ -242,6 +248,7 @@ function AppInner() {
           sessionIdRef.current = result.sessionId;
         }
         dispatch({ type: "SET_EXECUTION_RESULT", result });
+        setContextTokens(result.inputTokens ?? null);
 
         const diffs = await computeDiffs(state.repoPath, snapshotRef.current);
         dispatch({ type: "SET_DIFFS", diffs });
@@ -536,6 +543,25 @@ function AppInner() {
                 </div>
               )}
 
+              {/* Context usage bar */}
+              {contextTokens !== null && (() => {
+                const usagePct = (contextTokens / 200000) * 100;
+                return (
+                  <div className="context-usage">
+                    <div className="context-usage-label">
+                      <span>Context</span>
+                      <span>{formatTokens(contextTokens)} / 200K</span>
+                    </div>
+                    <div className="context-usage-bar">
+                      <div
+                        className={`context-usage-fill${usagePct > 80 ? " warning" : ""}`}
+                        style={{ width: `${Math.min(usagePct, 100)}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })()}
+
               {/* Message queue */}
               {queue.length > 0 && (
                 <div className="message-queue">
@@ -605,6 +631,7 @@ function AppInner() {
                         className="btn-ghost"
                         onClick={() => {
                           sessionIdRef.current = undefined;
+                          setContextTokens(null);
                           dispatch({ type: "CLEAR_TASK_HISTORY" });
                         }}
                         title="Clear conversation context and history"

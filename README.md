@@ -1,6 +1,7 @@
 # Claude Components
-
 A desktop app for visually editing React components with AI. Point it at a running React dev server, inspect and select components directly in a live preview, then describe changes in natural language — Claude Code executes the modifications and presents diffs for you to review, accept, or reject.
+
+__This is a free concept program made with Claude and pure thinking. There are no plans to monetize this project and you are free to follow the MIT license!__
 
 ## How It Works
 

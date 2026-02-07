@@ -574,6 +574,13 @@
   margin: 0;
 }
 
+/* ========== Context Usage ========== */
+.context-usage { padding: 6px 14px; border-bottom: 1px solid #313244; }
+.context-usage-label { display: flex; justify-content: space-between; font-size: 11px; color: #6c7086; margin-bottom: 4px; }
+.context-usage-bar { height: 4px; background: #313244; border-radius: 2px; overflow: hidden; }
+.context-usage-fill { height: 100%; background: #6366f1; border-radius: 2px; transition: width 0.3s; }
+.context-usage-fill.warning { background: #f9e2af; }
+
 /* ========== Message Queue ========== */
 .message-queue {
   padding: 8px 14px;

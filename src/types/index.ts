@@ -31,6 +31,8 @@ export interface ClaudeExecutionResult {
   exitCode: number;
   durationMs: number;
   sessionId?: string;
+  inputTokens?: number;
+  outputTokens?: number;
 }
 
 export interface FileSnapshot {

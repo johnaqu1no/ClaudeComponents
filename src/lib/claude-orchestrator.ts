@@ -23,6 +23,8 @@ export async function executeClaudeCode(
     exitCode: number;
     durationMs: number;
     sessionId: string | null;
+    inputTokens: number | null;
+    outputTokens: number | null;
   }>("execute_claude", {
     prompt,
     cwd,
@@ -35,5 +37,7 @@ export async function executeClaudeCode(
     exitCode: result.exitCode,
     durationMs: result.durationMs,
     sessionId: result.sessionId ?? undefined,
+    inputTokens: result.inputTokens ?? undefined,
+    outputTokens: result.outputTokens ?? undefined,
   };
 }

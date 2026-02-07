@@ -184,9 +184,11 @@ async fn execute_claude(
     let duration_ms = start.elapsed().as_millis() as u64;
     let exit_code = status.code().unwrap_or(-1);
 
-    // Parse session_id and result from the stream-json output
+    // Parse session_id, result, and usage from the stream-json output
     let mut parsed_session_id: Option<String> = None;
     let mut result_text = String::new();
+    let mut input_tokens: Option<u64> = None;
+    let mut output_tokens: Option<u64> = None;
     for line in &stdout_lines {
         if let Ok(val) = serde_json::from_str::<serde_json::Value>(line) {
             if let Some(sid) = val.get("session_id").and_then(|s| s.as_str()) {
@@ -195,6 +197,14 @@ async fn execute_claude(
             if val.get("type").and_then(|t| t.as_str()) == Some("result") {
                 if let Some(r) = val.get("result").and_then(|r| r.as_str()) {
                     result_text = r.to_string();
+                }
+            }
+            if let Some(usage) = val.get("usage") {
+                if let Some(it) = usage.get("input_tokens").and_then(|v| v.as_u64()) {
+                    input_tokens = Some(it);
+                }
+                if let Some(ot) = usage.get("output_tokens").and_then(|v| v.as_u64()) {
+                    output_tokens = Some(ot);
                 }
             }
         }
@@ -212,6 +222,8 @@ async fn execute_claude(
         "exitCode": exit_code,
         "durationMs": duration_ms,
         "sessionId": parsed_session_id,
+        "inputTokens": input_tokens,
+        "outputTokens": output_tokens,
     }))
 }
 
