@@ -248,7 +248,10 @@ function AppInner() {
           sessionIdRef.current = result.sessionId;
         }
         dispatch({ type: "SET_EXECUTION_RESULT", result });
-        setContextTokens(result.inputTokens ?? null);
+        const turnTokens = (result.inputTokens ?? 0) + (result.outputTokens ?? 0);
+        if (turnTokens > 0) {
+          setContextTokens((prev) => (prev ?? 0) + turnTokens);
+        }
 
         const diffs = await computeDiffs(state.repoPath, snapshotRef.current);
         dispatch({ type: "SET_DIFFS", diffs });
