@@ -157,40 +157,49 @@ export const TaskEditor = forwardRef<TaskEditorRef, TaskEditorProps>(
             const blob = item.getAsFile();
             if (!blob) continue;
 
-            event.preventDefault();
+            // Read the blob immediately before the event is garbage-collected
+            const reader = new FileReader();
+            reader.onload = async () => {
+              const arrayBuffer = reader.result as ArrayBuffer;
+              const data = new Uint8Array(arrayBuffer);
 
-            const uuid = crypto.randomUUID();
-            const ext =
-              item.type === "image/png"
-                ? "png"
-                : item.type === "image/jpeg"
-                  ? "jpg"
-                  : "png";
-            const fileName = `${uuid}.${ext}`;
-            const dirPath = `${repo}/.claude-components/images`;
-            const filePath = `${dirPath}/${fileName}`;
+              const uuid = crypto.randomUUID();
+              const ext =
+                item.type === "image/png"
+                  ? "png"
+                  : item.type === "image/jpeg"
+                    ? "jpg"
+                    : "png";
+              const fileName = `${uuid}.${ext}`;
+              const dirPath = `${repo}/.claude-components/images`;
+              const filePath = `${dirPath}/${fileName}`;
 
-            const objectUrl = URL.createObjectURL(blob);
+              // Save file to disk first
+              try {
+                await mkdir(dirPath, { recursive: true });
+                await writeFile(filePath, data);
+              } catch (err) {
+                console.error("Failed to save pasted image:", err);
+                return;
+              }
 
-            // Defer the insert to avoid re-entrancy in ProseMirror transaction
-            setTimeout(() => {
+              // Create data URL for inline preview
+              const base64 = btoa(
+                data.reduce((s, b) => s + String.fromCharCode(b), "")
+              );
+              const dataUrl = `data:${item.type};base64,${base64}`;
+
+              // Insert the image node into the editor
               editorRef.current
                 ?.chain()
                 .focus()
                 .insertContent({
                   type: "pastedImage",
-                  attrs: { src: objectUrl, filePath },
+                  attrs: { src: dataUrl, filePath },
                 })
                 .run();
-            }, 0);
-
-            // Save file to disk asynchronously
-            blob.arrayBuffer().then(async (buffer) => {
-              await mkdir(dirPath, { recursive: true });
-              await writeFile(filePath, new Uint8Array(buffer));
-            }).catch((err) => {
-              console.error("Failed to save pasted image:", err);
-            });
+            };
+            reader.readAsArrayBuffer(blob);
 
             return true;
           }
