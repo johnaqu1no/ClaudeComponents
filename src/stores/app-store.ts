@@ -17,6 +17,7 @@ export const initialState: AppState = {
   taskHistory: [],
   streamingLines: [],
   settingsOpen: false,
+  userQuestion: null,
 };
 
 export function appReducer(state: AppState, action: AppAction): AppState {
@@ -67,6 +68,8 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       };
     case "CLEAR_TASK_HISTORY":
       return { ...state, taskHistory: [] };
+    case "LOAD_HISTORY":
+      return { ...state, taskHistory: action.entries };
     case "APPEND_STREAM_LINE":
       return { ...state, streamingLines: [...state.streamingLines, action.line] };
     case "CLEAR_STREAM":
@@ -84,6 +87,10 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       }
       return next;
     }
+    case "SET_USER_QUESTION":
+      return { ...state, userQuestion: action.question, phase: "asking_user" };
+    case "CLEAR_USER_QUESTION":
+      return { ...state, userQuestion: null };
     case "RESET":
       return {
         ...initialState,

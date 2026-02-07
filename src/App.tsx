@@ -11,17 +11,19 @@ import { WebviewPanel } from "./components/WebviewPanel";
 import { InspectorToggle } from "./components/InspectorToggle";
 import { TaskHistory } from "./components/TaskHistory";
 import { SettingsPanel } from "./components/SettingsPanel";
+import { AskUserModal } from "./components/AskUserModal";
 import { scanRepository } from "./lib/scanner";
 import { resolvePrompt } from "./lib/prompt-resolver";
 import {
   checkClaudeAvailable,
-  executeClaudeCode,
+  executeClaudeCodeInteractive,
+  killClaudeProcess,
 } from "./lib/claude-orchestrator";
 import { createSnapshot, computeDiffs } from "./lib/diff-engine";
-import { loadSettings, saveSettings } from "./lib/settings";
+import { loadSettings, saveSettings, loadHistory, saveHistory } from "./lib/settings";
 import { listen } from "@tauri-apps/api/event";
 import type { JSONContent } from "@tiptap/react";
-import type { ComponentInfo, FileSnapshot, QueuedMessage } from "./types";
+import type { ComponentInfo, FileSnapshot, QueuedMessage, UserQuestion } from "./types";
 import "./App.css";
 
 function formatTokens(n: number): string {
@@ -56,6 +58,32 @@ function parseStreamLine(line: string): string | null {
   return null;
 }
 
+function detectUserQuestion(line: string): UserQuestion | null {
+  try {
+    const data = JSON.parse(line);
+    if (data.type === "assistant" && data.message?.content) {
+      for (const block of data.message.content) {
+        if (block.type === "tool_use" && block.name === "AskUserQuestion") {
+          const input = block.input;
+          if (input?.questions && Array.isArray(input.questions) && input.questions.length > 0) {
+            const q = input.questions[0];
+            return {
+              question: q.question ?? "Claude has a question",
+              options: (q.options ?? []).map((o: { label: string; description?: string }) => ({
+                label: o.label,
+                description: o.description ?? "",
+              })),
+            };
+          }
+        }
+      }
+    }
+  } catch {
+    // not JSON
+  }
+  return null;
+}
+
 function AppInner() {
   const [state, dispatch] = useReducer(appReducer, initialState);
   const editorRef = useRef<TaskEditorRef>(null);
@@ -69,6 +97,8 @@ function AppInner() {
   const [autoAccept, setAutoAccept] = useState(false);
   const autoAcceptRef = useRef(false);
   const [contextTokens, setContextTokens] = useState<number | null>(null);
+  const userQuestionRef = useRef<UserQuestion | null>(null);
+  const currentTaskIdRef = useRef<string | null>(null);
 
   // Message queue
   const [queue, setQueue] = useState<QueuedMessage[]>([]);
@@ -120,6 +150,14 @@ function AppInner() {
       if (parsed) {
         dispatch({ type: "APPEND_STREAM_LINE", line: parsed });
       }
+
+      // Detect AskUserQuestion tool_use in stream
+      const question = detectUserQuestion(event.payload);
+      if (question) {
+        userQuestionRef.current = question;
+        dispatch({ type: "SET_USER_QUESTION", question });
+        killClaudeProcess().catch(() => {});
+      }
     });
     return () => {
       unlistenPromise.then((fn) => fn());
@@ -140,6 +178,11 @@ function AppInner() {
         });
       }
     });
+    loadHistory().then((entries) => {
+      if (entries.length > 0) {
+        dispatch({ type: "LOAD_HISTORY", entries });
+      }
+    });
   }, []);
 
   // Persist settings when repoPath or devServerUrl change
@@ -158,6 +201,16 @@ function AppInner() {
       });
     }
   }, [state.repoPath, state.devServerUrl]);
+
+  // Persist task history to disk
+  const historyInitRef = useRef(true);
+  useEffect(() => {
+    if (historyInitRef.current) {
+      historyInitRef.current = false;
+      return;
+    }
+    saveHistory(state.taskHistory);
+  }, [state.taskHistory]);
 
   // Scan repo when selected
   useEffect(() => {
@@ -222,28 +275,45 @@ function AppInner() {
     async (prompt: string) => {
       if (!state.repoPath) return;
 
-      const taskId = crypto.randomUUID();
+      // If resuming from a user question, reuse the existing task ID
+      const taskId = currentTaskIdRef.current ?? crypto.randomUUID();
+      currentTaskIdRef.current = taskId;
+      userQuestionRef.current = null;
+
       const taskText =
         prompt.length > 80 ? prompt.slice(0, 80) + "..." : prompt;
 
-      dispatch({
-        type: "ADD_TASK_HISTORY",
-        entry: {
-          id: taskId,
-          taskText,
-          timestamp: Date.now(),
-          status: "running",
-          result: null,
-          diffs: [],
-        },
-      });
+      // Only add a new history entry if this isn't a resume
+      if (!state.taskHistory.some((t) => t.id === taskId)) {
+        dispatch({
+          type: "ADD_TASK_HISTORY",
+          entry: {
+            id: taskId,
+            taskText,
+            timestamp: Date.now(),
+            status: "running",
+            result: null,
+            diffs: [],
+          },
+        });
+      }
 
       dispatch({ type: "SET_PHASE", phase: "executing" });
       dispatch({ type: "CLEAR_STREAM" });
 
       try {
         snapshotRef.current = await createSnapshot(state.repoPath);
-        let result = await executeClaudeCode(prompt, state.repoPath, sessionIdRef.current);
+        let result = await executeClaudeCodeInteractive(prompt, state.repoPath, sessionIdRef.current);
+
+        // If a user question was detected, the process was killed.
+        // Keep the task "running" and return early — the modal handles resumption.
+        if (userQuestionRef.current) {
+          if (result.sessionId) {
+            sessionIdRef.current = result.sessionId;
+          }
+          return;
+        }
+
         if (result.sessionId) {
           sessionIdRef.current = result.sessionId;
         }
@@ -267,11 +337,20 @@ function AppInner() {
           });
 
           snapshotRef.current = await createSnapshot(state.repoPath);
-          const retryResult = await executeClaudeCode(
+          const retryResult = await executeClaudeCodeInteractive(
             "Do not plan or ask questions. Implement the changes now.",
             state.repoPath,
             sessionIdRef.current
           );
+
+          // Check again for user question after retry
+          if (userQuestionRef.current) {
+            if (retryResult.sessionId) {
+              sessionIdRef.current = retryResult.sessionId;
+            }
+            return;
+          }
+
           if (retryResult.sessionId) {
             sessionIdRef.current = retryResult.sessionId;
           }
@@ -288,6 +367,7 @@ function AppInner() {
         dispatch({ type: "SET_DIFFS", diffs });
         dispatch({ type: "SET_PHASE", phase: "ready" });
         dispatch({ type: "CLEAR_STREAM" });
+        currentTaskIdRef.current = null;
 
         if (autoAcceptRef.current && diffs.length > 0) {
           dispatch({ type: "ACCEPT_ALL" });
@@ -300,12 +380,16 @@ function AppInner() {
           updates: { status: "success", result, diffs },
         });
       } catch (err) {
+        // Don't treat killed-for-question as a real error
+        if (userQuestionRef.current) return;
+
         dispatch({
           type: "SET_ERROR",
           error: `Execution failed: ${err}`,
         });
         dispatch({ type: "SET_PHASE", phase: "ready" });
         dispatch({ type: "CLEAR_STREAM" });
+        currentTaskIdRef.current = null;
         dispatch({
           type: "UPDATE_TASK_HISTORY",
           id: taskId,
@@ -313,7 +397,7 @@ function AppInner() {
         });
       }
     },
-    [state.repoPath]
+    [state.repoPath, state.taskHistory]
   );
 
   const handleSubmit = useCallback(
@@ -350,6 +434,34 @@ function AppInner() {
     },
     [state.repoPath, state.phase, buildPrompt, executeTask]
   );
+
+  // Handle user answering the AskUserQuestion modal
+  const handleAnswerQuestion = useCallback(
+    (answer: string) => {
+      dispatch({ type: "CLEAR_USER_QUESTION" });
+      userQuestionRef.current = null;
+      // Resume the session with the user's answer
+      executeTask(answer);
+    },
+    [executeTask]
+  );
+
+  // Handle dismissing the question modal (cancel the task)
+  const handleDismissQuestion = useCallback(() => {
+    dispatch({ type: "CLEAR_USER_QUESTION" });
+    dispatch({ type: "SET_PHASE", phase: "ready" });
+    dispatch({ type: "CLEAR_STREAM" });
+    userQuestionRef.current = null;
+    if (currentTaskIdRef.current) {
+      dispatch({
+        type: "UPDATE_TASK_HISTORY",
+        id: currentTaskIdRef.current,
+        updates: { status: "failed" },
+      });
+      currentTaskIdRef.current = null;
+    }
+    killClaudeProcess().catch(() => {});
+  }, []);
 
   // Queue drain: when phase becomes ready and queue is non-empty, pop and execute
   useEffect(() => {
@@ -554,7 +666,7 @@ function AppInner() {
             {/* Right: editor + streaming + history */}
             <div className="panel-right" style={{ width: rightPanelWidth }}>
 
-              {(state.phase === "ready" || state.phase === "executing" || state.phase === "reviewing") && (
+              {(state.phase === "ready" || state.phase === "executing" || state.phase === "reviewing" || state.phase === "asking_user") && (
                 <div
                   className="editor-section"
                   onMouseOver={handleEditorMouseOver}
@@ -677,7 +789,7 @@ function AppInner() {
               )}
 
               {/* Streaming output during execution */}
-              {state.phase === "executing" && state.streamingLines.length > 0 && (
+              {(state.phase === "executing" || state.phase === "asking_user") && state.streamingLines.length > 0 && (
                 <div className="streaming-output" ref={streamRef}>
                   {state.streamingLines.map((line, i) => (
                     <div key={i} className="stream-line">{line}</div>
@@ -764,6 +876,15 @@ function AppInner() {
 
           {/* Settings modal */}
           <SettingsPanel />
+
+          {/* Ask User Question modal */}
+          {state.userQuestion && (
+            <AskUserModal
+              question={state.userQuestion}
+              onAnswer={handleAnswerQuestion}
+              onDismiss={handleDismissQuestion}
+            />
+          )}
         </div>
       </AppDispatchContext.Provider>
     </AppStateContext.Provider>

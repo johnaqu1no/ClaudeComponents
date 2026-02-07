@@ -498,6 +498,7 @@ name = "claude-components"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "libc",
  "reqwest 0.12.28",
  "serde",
  "serde_json",

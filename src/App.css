@@ -1204,6 +1204,92 @@
   color: #585b70;
 }
 
+/* ========== Ask User Modal ========== */
+.ask-user-panel {
+  background: #1e1e2e;
+  border: 1px solid #313244;
+  border-radius: 12px;
+  width: 520px;
+  max-width: 90vw;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.ask-user-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid #313244;
+}
+
+.ask-user-header h2 {
+  font-size: 16px;
+  font-weight: 600;
+  color: #cdd6f4;
+}
+
+.ask-user-body {
+  padding: 16px 20px 20px;
+}
+
+.ask-user-question {
+  font-size: 14px;
+  color: #cdd6f4;
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+
+.ask-user-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ask-user-option-btn {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid #45475a;
+  border-radius: 8px;
+  background: #181825;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.ask-user-option-btn:hover {
+  border-color: #6366f1;
+  background: #1e1e2e;
+}
+
+.ask-user-option-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: #cdd6f4;
+}
+
+.ask-user-option-desc {
+  font-size: 12px;
+  color: #6c7086;
+  line-height: 1.4;
+}
+
+.ask-user-other-toggle {
+  border-style: dashed;
+}
+
+.ask-user-other-input-group {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.ask-user-other-input-group .settings-input {
+  flex: 1;
+}
+
 /* ========== Component count (kept for compatibility) ========== */
 .component-count {
   font-size: 12px;

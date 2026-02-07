@@ -41,3 +41,37 @@ export async function executeClaudeCode(
     outputTokens: result.outputTokens ?? undefined,
   };
 }
+
+export async function executeClaudeCodeInteractive(
+  prompt: string,
+  cwd: string,
+  sessionId?: string
+): Promise<ClaudeExecutionResult> {
+  const result = await invoke<{
+    stdout: string;
+    stderr: string;
+    exitCode: number;
+    durationMs: number;
+    sessionId: string | null;
+    inputTokens: number | null;
+    outputTokens: number | null;
+  }>("execute_claude_interactive", {
+    prompt,
+    cwd,
+    sessionId: sessionId ?? null,
+  });
+
+  return {
+    stdout: result.stdout,
+    stderr: result.stderr,
+    exitCode: result.exitCode,
+    durationMs: result.durationMs,
+    sessionId: result.sessionId ?? undefined,
+    inputTokens: result.inputTokens ?? undefined,
+    outputTokens: result.outputTokens ?? undefined,
+  };
+}
+
+export async function killClaudeProcess(): Promise<void> {
+  await invoke("kill_claude_process");
+}

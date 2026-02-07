@@ -27,7 +27,7 @@ export function TaskHistory() {
   // Auto-expand the latest entry when it finishes
   useEffect(() => {
     if (taskHistory.length === 0) return;
-    const latest = taskHistory[taskHistory.length - 1];
+    const latest = taskHistory[0];
     if (latest.result) {
       setExpandedId(latest.id);
     }
@@ -56,8 +56,8 @@ export function TaskHistory() {
               {formatTime(entry.timestamp)}
               {entry.result?.durationMs &&
                 ` \u00b7 ${(entry.result.durationMs / 1000).toFixed(1)}s`}
-              {entry.diffs.length > 0 &&
-                ` \u00b7 ${entry.diffs.length} file${entry.diffs.length !== 1 ? "s" : ""}`}
+              {(entry.diffs.length || entry.diffCount || 0) > 0 &&
+                ` \u00b7 ${entry.diffs.length || entry.diffCount} file${(entry.diffs.length || entry.diffCount || 0) !== 1 ? "s" : ""}`}
             </span>
             {expandedId === entry.id && entry.result && (
               <div className="task-history-output">

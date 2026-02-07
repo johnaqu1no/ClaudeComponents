@@ -3,7 +3,12 @@ mod proxy;
 use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use walkdir::WalkDir;
+
+struct ClaudeProcessState {
+    pid: Mutex<Option<u32>>,
+}
 
 #[derive(Serialize)]
 pub struct FileEntry {
@@ -237,6 +242,148 @@ async fn execute_claude(
 }
 
 #[tauri::command]
+async fn execute_claude_interactive(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, ClaudeProcessState>,
+    prompt: String,
+    cwd: String,
+    session_id: Option<String>,
+) -> Result<serde_json::Value, String> {
+    use std::process::Stdio;
+    use tauri::Emitter;
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+    use tokio::process::Command;
+
+    let start = std::time::Instant::now();
+
+    let mut args = vec![
+        "-p".to_string(),
+        "--verbose".to_string(),
+        "--output-format".to_string(),
+        "stream-json".to_string(),
+        "--allowedTools".to_string(),
+        "Read,Edit,Write,AskUserQuestion".to_string(),
+    ];
+
+    if let Some(sid) = &session_id {
+        args.push("--resume".to_string());
+        args.push(sid.clone());
+    }
+
+    let mut child = Command::new("claude")
+        .args(&args)
+        .current_dir(&cwd)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Failed to spawn claude: {}", e))?;
+
+    // Store the child PID so we can kill it later
+    if let Some(pid) = child.id() {
+        *state.pid.lock().unwrap() = Some(pid);
+    }
+
+    // Write prompt to stdin and drop to close the pipe
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin
+            .write_all(prompt.as_bytes())
+            .await
+            .map_err(|e| format!("Failed to write to stdin: {}", e))?;
+    }
+
+    let stdout_pipe = child.stdout.take().unwrap();
+    let stderr_pipe = child.stderr.take().unwrap();
+
+    // Read stdout line by line, emitting each as a Tauri event
+    let app_clone = app.clone();
+    let stdout_task = tokio::spawn(async move {
+        let reader = BufReader::new(stdout_pipe);
+        let mut lines = reader.lines();
+        let mut collected: Vec<String> = Vec::new();
+        while let Ok(Some(line)) = lines.next_line().await {
+            let _ = app_clone.emit("claude-stream", &line);
+            collected.push(line);
+        }
+        collected
+    });
+
+    // Collect stderr
+    let stderr_task = tokio::spawn(async move {
+        let mut buf = String::new();
+        let mut reader = BufReader::new(stderr_pipe);
+        reader.read_to_string(&mut buf).await.ok();
+        buf
+    });
+
+    let status = child.wait().await.map_err(|e| format!("Failed to wait: {}", e))?;
+
+    // Clear PID after process ends
+    *state.pid.lock().unwrap() = None;
+
+    let stdout_lines = stdout_task.await.map_err(|e| e.to_string())?;
+    let stderr = stderr_task.await.map_err(|e| e.to_string())?;
+
+    let duration_ms = start.elapsed().as_millis() as u64;
+    let exit_code = status.code().unwrap_or(-1);
+
+    // Parse session_id, result, and usage from the stream-json output
+    let mut parsed_session_id: Option<String> = None;
+    let mut result_text = String::new();
+    let mut input_tokens: Option<u64> = None;
+    let mut output_tokens: Option<u64> = None;
+    for line in &stdout_lines {
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(line) {
+            if let Some(sid) = val.get("session_id").and_then(|s| s.as_str()) {
+                parsed_session_id = Some(sid.to_string());
+            }
+            if val.get("type").and_then(|t| t.as_str()) == Some("result") {
+                if let Some(r) = val.get("result").and_then(|r| r.as_str()) {
+                    result_text = r.to_string();
+                }
+            }
+            if let Some(usage) = val.get("usage") {
+                if let Some(it) = usage.get("input_tokens").and_then(|v| v.as_u64()) {
+                    input_tokens = Some(it);
+                }
+                if let Some(ot) = usage.get("output_tokens").and_then(|v| v.as_u64()) {
+                    output_tokens = Some(ot);
+                }
+            }
+        }
+    }
+
+    let stdout = if result_text.is_empty() {
+        stdout_lines.join("\n")
+    } else {
+        result_text
+    };
+
+    Ok(serde_json::json!({
+        "stdout": stdout,
+        "stderr": stderr,
+        "exitCode": exit_code,
+        "durationMs": duration_ms,
+        "sessionId": parsed_session_id,
+        "inputTokens": input_tokens,
+        "outputTokens": output_tokens,
+    }))
+}
+
+#[tauri::command]
+async fn kill_claude_process(
+    state: tauri::State<'_, ClaudeProcessState>,
+) -> Result<(), String> {
+    let pid = state.pid.lock().unwrap().take();
+    if let Some(pid) = pid {
+        unsafe {
+            libc::kill(pid as i32, libc::SIGKILL);
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
 async fn start_inspector_proxy(dev_server_url: String) -> Result<u16, String> {
     proxy::start_proxy(dev_server_url).await
 }
@@ -253,6 +400,9 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
+        .manage(ClaudeProcessState {
+            pid: Mutex::new(None),
+        })
         .invoke_handler(tauri::generate_handler![
             read_directory_recursive,
             read_file_contents,
@@ -261,6 +411,8 @@ pub fn run() {
             write_binary_file,
             delete_file,
             execute_claude,
+            execute_claude_interactive,
+            kill_claude_process,
             start_inspector_proxy,
             stop_inspector_proxy,
         ])

@@ -23,7 +23,8 @@ export type AppPhase =
   | "scanning"
   | "ready"
   | "executing"
-  | "reviewing";
+  | "reviewing"
+  | "asking_user";
 
 export interface ClaudeExecutionResult {
   stdout: string;
@@ -43,6 +44,16 @@ export interface FileSnapshot {
 export interface FileEntry {
   path: string;
   relative_path: string;
+}
+
+export interface UserQuestionOption {
+  label: string;
+  description: string;
+}
+
+export interface UserQuestion {
+  question: string;
+  options: UserQuestionOption[];
 }
 
 export interface ElementContext {
@@ -76,6 +87,7 @@ export interface TaskHistoryEntry {
   result: ClaudeExecutionResult | null;
   diffs: FileDiff[];
   durationMs?: number;
+  diffCount?: number;
 }
 
 export interface AppState {
@@ -94,6 +106,7 @@ export interface AppState {
   taskHistory: TaskHistoryEntry[];
   streamingLines: string[];
   settingsOpen: boolean;
+  userQuestion: UserQuestion | null;
 }
 
 export type AppAction =
@@ -115,8 +128,11 @@ export type AppAction =
   | { type: "ADD_TASK_HISTORY"; entry: TaskHistoryEntry }
   | { type: "UPDATE_TASK_HISTORY"; id: string; updates: Partial<TaskHistoryEntry> }
   | { type: "CLEAR_TASK_HISTORY" }
+  | { type: "LOAD_HISTORY"; entries: TaskHistoryEntry[] }
   | { type: "APPEND_STREAM_LINE"; line: string }
   | { type: "CLEAR_STREAM" }
   | { type: "SET_SETTINGS_OPEN"; open: boolean }
   | { type: "LOAD_SETTINGS"; repoPath: string | null; devServerUrl: string | null }
+  | { type: "SET_USER_QUESTION"; question: UserQuestion }
+  | { type: "CLEAR_USER_QUESTION" }
   | { type: "RESET" };
