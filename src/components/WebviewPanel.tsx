@@ -31,16 +31,23 @@ export function WebviewPanel() {
   }, []);
 
   // Ctrl+R / Cmd+R to reload the webview
+  // Backtick to toggle inspector (ignored when typing in editor)
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if ((e.ctrlKey || e.metaKey) && e.key === "r") {
         e.preventDefault();
         reloadIframe();
       }
+      if (e.key === "`" && proxyPort) {
+        const target = e.target as HTMLElement;
+        if (target.closest(".tiptap") || target.isContentEditable || target.tagName === "INPUT" || target.tagName === "TEXTAREA") return;
+        e.preventDefault();
+        dispatch({ type: "SET_INSPECTOR_ACTIVE", active: !inspectorActive });
+      }
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [reloadIframe]);
+  }, [reloadIframe, inspectorActive, proxyPort, dispatch]);
 
   // Listen for reload event from toolbar refresh button
   useEffect(() => {
@@ -50,6 +57,17 @@ export function WebviewPanel() {
     window.addEventListener("reload-webview", handleReloadEvent);
     return () => window.removeEventListener("reload-webview", handleReloadEvent);
   }, [reloadIframe]);
+
+  // Listen for navigate event from URL bar
+  useEffect(() => {
+    function handleNavigate(e: Event) {
+      const path = (e as CustomEvent).detail as string;
+      lastLocationRef.current = { path, scrollX: 0, scrollY: 0 };
+      setReloadKey((k) => k + 1);
+    }
+    window.addEventListener("navigate-webview", handleNavigate);
+    return () => window.removeEventListener("navigate-webview", handleNavigate);
+  }, []);
 
   // Start proxy when devServerUrl changes
   useEffect(() => {
@@ -87,15 +105,17 @@ export function WebviewPanel() {
     );
   }, [inspectorActive, proxyPort]);
 
-  // Listen for current-location response from iframe (navigation preservation)
+  // Listen for current-location response from iframe (navigation preservation + URL bar sync)
   useEffect(() => {
     function handleLocationMessage(e: MessageEvent) {
       if (e.data?.type === "current-location") {
+        const path = e.data.path || "/";
         lastLocationRef.current = {
-          path: e.data.path || "/",
+          path,
           scrollX: e.data.scrollX || 0,
           scrollY: e.data.scrollY || 0,
         };
+        window.dispatchEvent(new CustomEvent("webview-location", { detail: path }));
         if (pendingReloadRef.current) {
           pendingReloadRef.current = false;
           setReloadKey((k) => k + 1);
@@ -106,9 +126,19 @@ export function WebviewPanel() {
     return () => window.removeEventListener("message", handleLocationMessage);
   }, []);
 
-  // Restore scroll position after iframe loads
+  // Restore scroll position and re-send inspector state after iframe loads
   const handleIframeLoad = useCallback(() => {
-    if (!lastLocationRef.current || !iframeRef.current) return;
+    if (!iframeRef.current) return;
+
+    // Re-send inspector state to the fresh iframe
+    if (inspectorActive) {
+      iframeRef.current.contentWindow?.postMessage(
+        { type: "enable-inspector" },
+        "*"
+      );
+    }
+
+    if (!lastLocationRef.current) return;
     const { scrollX, scrollY } = lastLocationRef.current;
     if (scrollX || scrollY) {
       // Small delay to let the page render before scrolling
@@ -119,7 +149,7 @@ export function WebviewPanel() {
         );
       }, 100);
     }
-  }, []);
+  }, [inspectorActive]);
 
   // Listen for component selection from iframe
   useEffect(() => {

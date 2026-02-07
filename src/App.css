@@ -65,6 +65,39 @@
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
 }
 
+.toolbar-url-group {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  max-width: 520px;
+  margin: 0 12px;
+  gap: 4px;
+}
+
+.toolbar-url-bar {
+  flex: 1;
+}
+
+.toolbar-url-input {
+  width: 100%;
+  padding: 4px 10px;
+  border: 1px solid #313244;
+  border-radius: 6px;
+  background: #11111b;
+  color: #cdd6f4;
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  outline: none;
+}
+
+.toolbar-url-input:focus {
+  border-color: #6366f1;
+}
+
+.toolbar-url-input::placeholder {
+  color: #585b70;
+}
+
 .toolbar-center {
   display: flex;
   align-items: center;
@@ -101,6 +134,11 @@
 .toolbar-icon-btn:hover {
   background: #313244;
   color: #cdd6f4;
+}
+
+.toolbar-icon-btn.inspector-active {
+  background: #6366f1;
+  color: #fff;
 }
 
 /* Inspector toggle */
@@ -361,6 +399,18 @@
   color: #585b70;
   pointer-events: none;
   height: 0;
+}
+
+/* Pasted image thumbnails */
+.pasted-image-node {
+  display: inline-block;
+  max-width: 200px;
+  max-height: 120px;
+  border-radius: 6px;
+  border: 1px solid #313244;
+  margin: 4px 2px;
+  vertical-align: middle;
+  object-fit: cover;
 }
 
 /* Mention chips */

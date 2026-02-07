@@ -404,6 +404,19 @@ function AppInner() {
 
   const showDiffPanel = state.diffs.length > 0;
 
+  // Sync URL bar with iframe navigation
+  useEffect(() => {
+    function handleLocation(e: Event) {
+      const path = (e as CustomEvent).detail as string;
+      const input = document.getElementById("toolbar-url") as HTMLInputElement | null;
+      if (input && document.activeElement !== input) {
+        input.value = path;
+      }
+    }
+    window.addEventListener("webview-location", handleLocation);
+    return () => window.removeEventListener("webview-location", handleLocation);
+  }, []);
+
   // Auto-scroll streaming output
   const streamRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -426,19 +439,42 @@ function AppInner() {
                 </span>
               )}
             </div>
+            {state.proxyPort && (
+              <div className="toolbar-url-group">
+                <button
+                  className="toolbar-icon-btn"
+                  onClick={() => window.dispatchEvent(new Event("reload-webview"))}
+                  title="Refresh page"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+                    <path d="M21 3v5h-5" />
+                  </svg>
+                </button>
+                <form
+                  className="toolbar-url-bar"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const input = e.currentTarget.querySelector("input") as HTMLInputElement;
+                    let path = input.value.trim();
+                    if (!path) return;
+                    if (!path.startsWith("/")) path = "/" + path;
+                    window.dispatchEvent(new CustomEvent("navigate-webview", { detail: path }));
+                    input.blur();
+                  }}
+                >
+                  <input
+                    id="toolbar-url"
+                    type="text"
+                    className="toolbar-url-input"
+                    placeholder="/"
+                    defaultValue="/"
+                  />
+                </form>
+                <InspectorToggle />
+              </div>
+            )}
             <div className="toolbar-right">
-              <button
-                className="toolbar-icon-btn"
-                onClick={() => window.dispatchEvent(new Event("reload-webview"))}
-                title="Refresh page"
-                disabled={!state.proxyPort}
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
-                  <path d="M21 3v5h-5" />
-                </svg>
-              </button>
-              <InspectorToggle />
               {state.components.length > 0 && (
                 <span className="toolbar-badge">
                   {state.components.length} components
@@ -517,7 +553,6 @@ function AppInner() {
                         "Run with Claude"
                       )}
                     </button>
-                    <span className="shortcut-hint">Enter</span>
                     <label className="auto-accept-toggle" title="Automatically accept all changes without review">
                       <input
                         type="checkbox"

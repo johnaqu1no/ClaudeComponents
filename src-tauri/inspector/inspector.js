@@ -252,4 +252,30 @@
       window.parent.postMessage({ type: 'inspector-deactivated' }, '*');
     }
   });
+
+  // Report URL changes to parent (SPA navigation)
+  function reportLocation() {
+    window.parent.postMessage({
+      type: 'current-location',
+      path: location.pathname + location.search + location.hash,
+      scrollX: window.scrollX,
+      scrollY: window.scrollY,
+    }, '*');
+  }
+
+  // Intercept pushState/replaceState to detect SPA navigations
+  var origPushState = history.pushState;
+  var origReplaceState = history.replaceState;
+  history.pushState = function() {
+    origPushState.apply(this, arguments);
+    reportLocation();
+  };
+  history.replaceState = function() {
+    origReplaceState.apply(this, arguments);
+    reportLocation();
+  };
+  window.addEventListener('popstate', reportLocation);
+
+  // Report initial location on load
+  reportLocation();
 })();

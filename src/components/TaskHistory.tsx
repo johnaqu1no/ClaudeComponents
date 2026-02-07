@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAppState } from "../stores/app-store";
 import type { TaskHistoryEntry } from "../types";
 
@@ -23,6 +23,15 @@ function StatusIcon({ status }: { status: TaskHistoryEntry["status"] }) {
 export function TaskHistory() {
   const { taskHistory } = useAppState();
   const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  // Auto-expand the latest entry when it finishes
+  useEffect(() => {
+    if (taskHistory.length === 0) return;
+    const latest = taskHistory[taskHistory.length - 1];
+    if (latest.result) {
+      setExpandedId(latest.id);
+    }
+  }, [taskHistory]);
 
   if (taskHistory.length === 0) {
     return (

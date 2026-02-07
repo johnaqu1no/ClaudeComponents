@@ -4,8 +4,14 @@ import type { ComponentInfo } from "../types";
 function extractFromNode(
   node: JSONContent,
   textParts: string[],
-  mentionIds: Set<string>
+  mentionIds: Set<string>,
+  imagePaths: string[]
 ) {
+  if (node.type === "pastedImage" && node.attrs?.filePath) {
+    imagePaths.push(node.attrs.filePath);
+    return;
+  }
+
   if (node.type === "mention" && node.attrs?.id) {
     textParts.push(`@${node.attrs.label || node.attrs.id}`);
     mentionIds.add(node.attrs.id);
@@ -20,7 +26,7 @@ function extractFromNode(
   if (node.type === "paragraph") {
     if (node.content) {
       for (const child of node.content) {
-        extractFromNode(child, textParts, mentionIds);
+        extractFromNode(child, textParts, mentionIds, imagePaths);
       }
     }
     textParts.push("\n");
@@ -34,7 +40,7 @@ function extractFromNode(
 
   if (node.content) {
     for (const child of node.content) {
-      extractFromNode(child, textParts, mentionIds);
+      extractFromNode(child, textParts, mentionIds, imagePaths);
     }
   }
 }
@@ -45,15 +51,16 @@ export function resolvePrompt(
 ): string {
   const textParts: string[] = [];
   const mentionIds = new Set<string>();
+  const imagePaths: string[] = [];
 
   if (doc.content) {
     for (const child of doc.content) {
-      extractFromNode(child, textParts, mentionIds);
+      extractFromNode(child, textParts, mentionIds, imagePaths);
     }
   }
 
   const taskText = textParts.join("").trim();
-  if (!taskText) return "";
+  if (!taskText && imagePaths.length === 0) return "";
 
   const referencedComponents: ComponentInfo[] = [];
   for (const id of mentionIds) {
@@ -61,13 +68,21 @@ export function resolvePrompt(
     if (comp) referencedComponents.push(comp);
   }
 
-  let prompt = `Task:\n${taskText}`;
+  let prompt = `Task:\n${taskText || "(see attached images)"}`;
 
   if (referencedComponents.length > 0) {
     prompt += "\n\nReferenced Components:\n";
     for (const comp of referencedComponents) {
       prompt += `\nComponent: ${comp.name}\nFile: ${comp.relativePath}\n\`\`\`tsx\n${comp.sourceText}\n\`\`\`\n`;
     }
+  }
+
+  if (imagePaths.length > 0) {
+    prompt += "\n\nAttached Images (use Read tool to view):";
+    for (const p of imagePaths) {
+      prompt += `\n- ${p}`;
+    }
+    prompt += "\n";
   }
 
   return prompt;
