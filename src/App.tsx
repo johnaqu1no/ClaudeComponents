@@ -438,12 +438,14 @@ function AppInner() {
   // Handle user answering the AskUserQuestion modal
   const handleAnswerQuestion = useCallback(
     (answer: string) => {
+      const question = state.userQuestion?.question ?? "your question";
       dispatch({ type: "CLEAR_USER_QUESTION" });
       userQuestionRef.current = null;
-      // Resume the session with the user's answer
-      executeTask(answer);
+      // Wrap the answer so Claude treats it as a response, not a new instruction
+      const wrappedAnswer = `You asked: "${question}"\nMy answer: ${answer}\nPlease proceed based on this answer.`;
+      executeTask(wrappedAnswer);
     },
-    [executeTask]
+    [executeTask, state.userQuestion]
   );
 
   // Handle dismissing the question modal (cancel the task)
