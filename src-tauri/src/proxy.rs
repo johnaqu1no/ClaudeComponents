@@ -179,9 +179,9 @@ async fn proxy_handler(
         &target_url,
     );
 
-    // Forward relevant headers
+    // Forward relevant headers (skip Accept-Encoding — reqwest handles its own decompression)
     for (name, value) in headers.iter() {
-        if name == header::HOST {
+        if name == header::HOST || name == header::ACCEPT_ENCODING {
             continue;
         }
         if let Ok(v) = value.to_str() {
@@ -264,12 +264,12 @@ async fn proxy_handler(
 
     let mut response = Response::builder().status(status);
 
-    // Forward response headers (skip content-length since we may have modified the body)
+    // Forward response headers (skip headers that no longer apply after reqwest decoding)
     for (name, value) in resp_headers.iter() {
-        if name == header::CONTENT_LENGTH {
-            continue;
-        }
-        if name == header::TRANSFER_ENCODING {
+        if name == header::CONTENT_LENGTH
+            || name == header::TRANSFER_ENCODING
+            || name == header::CONTENT_ENCODING
+        {
             continue;
         }
         response = response.header(name, value);

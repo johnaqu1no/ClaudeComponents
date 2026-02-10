@@ -62,6 +62,7 @@ export interface ElementContext {
   id: string | null;
   textContent: string | null;
   selector: string;
+  attributes?: Record<string, string>;
 }
 
 export interface DetectedComponent {

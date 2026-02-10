@@ -134,12 +134,65 @@ function findComponents(
   return components;
 }
 
+function extractVueScriptBlock(content: string): { source: string; startLine: number; endLine: number } | null {
+  // Match <script setup> or <script> opening tag (with optional attributes)
+  const openRegex = /<script\b[^>]*>/i;
+  const closeTag = "</script>";
+
+  const openMatch = openRegex.exec(content);
+  if (!openMatch) return null;
+
+  const scriptStart = openMatch.index + openMatch[0].length;
+  const closeIndex = content.indexOf(closeTag, scriptStart);
+  if (closeIndex === -1) return null;
+
+  const source = content.slice(scriptStart, closeIndex);
+
+  // Count lines up to the script content start
+  const startLine = content.slice(0, scriptStart).split("\n").length;
+  const endLine = startLine + source.split("\n").length - 1;
+
+  return { source, startLine, endLine };
+}
+
+function componentNameFromFilename(relativePath: string): string | null {
+  const filename = relativePath.split("/").pop();
+  if (!filename) return null;
+  const name = filename.replace(/\.vue$/, "");
+  // Vue SFC names should be PascalCase (or at least start uppercase)
+  if (/^[A-Z]/.test(name)) return name;
+  // Convert kebab-case to PascalCase (e.g. app-header → AppHeader)
+  const pascal = name.replace(/(^|-)([a-z])/g, (_m, _sep, ch) => ch.toUpperCase());
+  return /^[A-Z]/.test(pascal) ? pascal : null;
+}
+
+function parseVueFile(
+  content: string,
+  filePath: string,
+  relativePath: string
+): ComponentInfo[] {
+  const name = componentNameFromFilename(relativePath);
+  if (!name) return [];
+
+  const scriptBlock = extractVueScriptBlock(content);
+
+  return [{
+    name,
+    filePath,
+    relativePath,
+    exportType: "default",
+    startLine: scriptBlock ? scriptBlock.startLine : 1,
+    endLine: scriptBlock ? scriptBlock.endLine : content.split("\n").length,
+    sourceText: scriptBlock ? scriptBlock.source : content,
+  }];
+}
+
 export async function scanRepository(
   repoPath: string
 ): Promise<ComponentInfo[]> {
   const entries: FileEntry[] = await invoke("read_directory_recursive", {
     root: repoPath,
-    extensions: ["tsx", "jsx", "ts", "js"],
+    extensions: ["tsx", "jsx", "ts", "js", "vue"],
   });
 
   const allComponents: ComponentInfo[] = [];
@@ -154,6 +207,11 @@ export async function scanRepository(
           const content: string = await invoke("read_file_contents", {
             path: entry.path,
           });
+
+          // Vue SFC: derive component from filename + extract script block
+          if (entry.relative_path.endsWith(".vue")) {
+            return parseVueFile(content, entry.path, entry.relative_path);
+          }
 
           const sourceFile = ts.createSourceFile(
             entry.relative_path,

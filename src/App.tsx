@@ -94,6 +94,9 @@ function AppInner() {
   const [rightPanelWidth, setRightPanelWidth] = useState(380);
   const [isResizing, setIsResizing] = useState(false);
   const resizingRef = useRef(false);
+  const [chatCollapsed, setChatCollapsed] = useState(false);
+  const [streamHeight, setStreamHeight] = useState(200);
+  const streamResizingRef = useRef(false);
   const [autoAccept, setAutoAccept] = useState(false);
   const autoAcceptRef = useRef(false);
   const [contextTokens, setContextTokens] = useState<number | null>(null);
@@ -111,13 +114,27 @@ function AppInner() {
   // Panel resize handlers
   useEffect(() => {
     function handleMouseMove(e: MouseEvent) {
-      if (!resizingRef.current) return;
-      const newWidth = window.innerWidth - e.clientX;
-      setRightPanelWidth(Math.max(280, Math.min(800, newWidth)));
+      if (resizingRef.current) {
+        const newWidth = window.innerWidth - e.clientX;
+        const maxWidth = Math.floor(window.innerWidth * 0.9);
+        setRightPanelWidth(Math.max(280, Math.min(maxWidth, newWidth)));
+      }
+      if (streamResizingRef.current) {
+        const streamEl = document.querySelector(".streaming-output") as HTMLElement | null;
+        if (streamEl) {
+          const rect = streamEl.getBoundingClientRect();
+          const newHeight = e.clientY - rect.top;
+          setStreamHeight(Math.max(80, Math.min(600, newHeight)));
+        }
+      }
     }
     function handleMouseUp() {
       if (resizingRef.current) {
         resizingRef.current = false;
+        setIsResizing(false);
+      }
+      if (streamResizingRef.current) {
+        streamResizingRef.current = false;
         setIsResizing(false);
       }
     }
@@ -257,6 +274,11 @@ function AppInner() {
         let elementDesc = `<${el.tag || "unknown"}`;
         if (el.id) elementDesc += ` id="${el.id}"`;
         if (el.className) elementDesc += ` class="${el.className}"`;
+        if (el.attributes) {
+          for (const [attr, val] of Object.entries(el.attributes)) {
+            elementDesc += ` ${attr}="${val}"`;
+          }
+        }
         elementDesc += ">";
         prompt += `\nThe user is referring to this specific element: ${elementDesc}`;
         if (el.textContent) {
@@ -625,6 +647,23 @@ function AppInner() {
                   {state.components.length} components
                 </span>
               )}
+              <button
+                className="toolbar-icon-btn"
+                onClick={() => setChatCollapsed((c) => !c)}
+                title={chatCollapsed ? "Show chat panel" : "Hide chat panel"}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  {chatCollapsed ? (
+                    <>
+                      <path d="M15 18l-6-6 6-6" />
+                    </>
+                  ) : (
+                    <>
+                      <path d="M9 18l6-6-6-6" />
+                    </>
+                  )}
+                </svg>
+              </button>
             </div>
           </header>
 
@@ -663,10 +702,12 @@ function AppInner() {
             </div>
 
             {/* Resize handle */}
-            <div className="resize-handle" onMouseDown={handleResizeStart} />
+            {!chatCollapsed && (
+              <div className="resize-handle" onMouseDown={handleResizeStart} />
+            )}
 
             {/* Right: editor + streaming + history */}
-            <div className="panel-right" style={{ width: rightPanelWidth }}>
+            <div className="panel-right" style={{ width: chatCollapsed ? 0 : rightPanelWidth, display: chatCollapsed ? "none" : undefined }}>
 
               {(state.phase === "ready" || state.phase === "executing" || state.phase === "reviewing" || state.phase === "asking_user") && (
                 <div
@@ -792,10 +833,18 @@ function AppInner() {
 
               {/* Streaming output during execution */}
               {(state.phase === "executing" || state.phase === "asking_user") && state.streamingLines.length > 0 && (
-                <div className="streaming-output" ref={streamRef}>
+                <div className="streaming-output" ref={streamRef} style={{ maxHeight: streamHeight, height: streamHeight }}>
                   {state.streamingLines.map((line, i) => (
                     <div key={i} className="stream-line">{line}</div>
                   ))}
+                  <div
+                    className="stream-resize-handle"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      streamResizingRef.current = true;
+                      setIsResizing(true);
+                    }}
+                  />
                 </div>
               )}
 

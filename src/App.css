@@ -705,11 +705,28 @@
 
 /* ========== Streaming output ========== */
 .streaming-output {
+  position: relative;
   padding: 10px 14px;
   max-height: 200px;
   overflow-y: auto;
   border-bottom: 1px solid #313244;
   background: #11111b;
+}
+
+.stream-resize-handle {
+  position: sticky;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 6px;
+  cursor: row-resize;
+  background: transparent;
+  transition: background 0.15s;
+}
+
+.stream-resize-handle:hover,
+.app-body.resizing .stream-resize-handle {
+  background: #6366f1;
 }
 
 .stream-line {

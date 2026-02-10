@@ -42,21 +42,34 @@
     document.body.appendChild(label);
   }
 
-  function getReactFiber(element) {
-    const keys = Object.keys(element);
-    for (const key of keys) {
-      if (key.startsWith('__reactFiber$') || key.startsWith('__reactInternalInstance$')) {
-        return element[key];
+  // --- Framework detection (React + Vue 3) ---
+
+  function getFrameworkInfo(element) {
+    let el = element;
+    while (el && el !== document.documentElement) {
+      // React: check for fiber key
+      const keys = Object.keys(el);
+      for (const key of keys) {
+        if (key.startsWith('__reactFiber$') || key.startsWith('__reactInternalInstance$')) {
+          return { framework: 'react', fiber: el[key] };
+        }
       }
+      // Vue 3: check for __vueParentComponent
+      if (el.__vueParentComponent) {
+        return { framework: 'vue', instance: el.__vueParentComponent };
+      }
+      el = el.parentElement;
     }
     return null;
   }
+
+  // --- React helpers ---
 
   function findComponentFiber(fiber) {
     let current = fiber;
     while (current) {
       if (typeof current.type === 'function' || typeof current.type === 'object') {
-        const name = getComponentName(current);
+        const name = getReactComponentName(current);
         if (name && /^[A-Z]/.test(name)) {
           return current;
         }
@@ -66,7 +79,7 @@
     return null;
   }
 
-  function getComponentName(fiber) {
+  function getReactComponentName(fiber) {
     if (!fiber || !fiber.type) return null;
     if (typeof fiber.type === 'string') return null;
     return fiber.type.displayName || fiber.type.name || null;
@@ -86,6 +99,27 @@
     return null;
   }
 
+  // --- Vue 3 helpers ---
+
+  function getVueComponentName(instance) {
+    if (!instance) return null;
+    var type = instance.type;
+    // __name is set by Vite's Vue plugin for <script setup> SFCs
+    return (type && (type.__name || type.name)) || null;
+  }
+
+  function findVueNamedComponent(instance) {
+    var current = instance;
+    while (current) {
+      var name = getVueComponentName(current);
+      if (name && /^[A-Z]/.test(name)) {
+        return current;
+      }
+      current = current.parent;
+    }
+    return null;
+  }
+
   function getElementContext(element) {
     const tag = element.tagName ? element.tagName.toLowerCase() : null;
     const classes = element.className && typeof element.className === 'string'
@@ -99,34 +133,67 @@
     if (id) selector += '#' + id;
     if (classes) selector += '.' + classes.split(/\s+/).join('.');
 
+    // Collect distinguishing attributes so identical-looking elements can be told apart
+    var distinguishing = ['src', 'alt', 'href', 'name', 'type', 'value', 'placeholder', 'role', 'aria-label', 'data-testid'];
+    var attributes = {};
+    for (var i = 0; i < distinguishing.length; i++) {
+      var val = element.getAttribute ? element.getAttribute(distinguishing[i]) : null;
+      if (val) {
+        attributes[distinguishing[i]] = val.length > 120 ? val.slice(0, 120) : val;
+      }
+    }
+
     return {
       tag: tag,
       className: classes || null,
       id: id,
       textContent: truncatedText || null,
       selector: selector,
+      attributes: Object.keys(attributes).length > 0 ? attributes : undefined,
     };
   }
 
   function getComponentInfo(element) {
-    const fiber = getReactFiber(element);
-    if (!fiber) return null;
+    const info = getFrameworkInfo(element);
+    if (!info) return null;
 
-    const componentFiber = findComponentFiber(fiber);
-    if (!componentFiber) return null;
-
-    const name = getComponentName(componentFiber);
-    if (!name) return null;
-
-    const source = getDebugSource(componentFiber);
     const elementContext = getElementContext(element);
 
-    return {
-      componentName: name,
-      fileName: source ? source.fileName : null,
-      lineNumber: source ? source.lineNumber : null,
-      element: elementContext,
-    };
+    if (info.framework === 'react') {
+      const componentFiber = findComponentFiber(info.fiber);
+      if (!componentFiber) return null;
+
+      const name = getReactComponentName(componentFiber);
+      if (!name) return null;
+
+      const source = getDebugSource(componentFiber);
+      return {
+        componentName: name,
+        fileName: source ? source.fileName : null,
+        lineNumber: source ? source.lineNumber : null,
+        element: elementContext,
+      };
+    }
+
+    if (info.framework === 'vue') {
+      const comp = findVueNamedComponent(info.instance);
+      if (!comp) return null;
+
+      const name = getVueComponentName(comp);
+      if (!name) return null;
+
+      // Vite's Vue plugin sets __file on component types in dev mode
+      const file = (comp.type && comp.type.__file) || null;
+
+      return {
+        componentName: name,
+        fileName: file,
+        lineNumber: null,
+        element: elementContext,
+      };
+    }
+
+    return null;
   }
 
   function positionOverlay(element) {
@@ -200,7 +267,7 @@
           componentName: null,
           fileName: null,
           lineNumber: null,
-          error: 'No React component found on this element. Make sure you are running in development mode.',
+          error: 'No component found on this element. Make sure you are running a React or Vue 3 app in development mode.',
         },
       }, '*');
     }
