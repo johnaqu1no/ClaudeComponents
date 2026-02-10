@@ -248,6 +248,7 @@ async fn execute_claude_interactive(
     prompt: String,
     cwd: String,
     session_id: Option<String>,
+    allowed_tools: Option<String>,
 ) -> Result<serde_json::Value, String> {
     use std::process::Stdio;
     use tauri::Emitter;
@@ -256,13 +257,14 @@ async fn execute_claude_interactive(
 
     let start = std::time::Instant::now();
 
+    let tools = allowed_tools.unwrap_or_else(|| "Read,Edit,Write,AskUserQuestion".to_string());
     let mut args = vec![
         "-p".to_string(),
         "--verbose".to_string(),
         "--output-format".to_string(),
         "stream-json".to_string(),
         "--allowedTools".to_string(),
-        "Read,Edit,Write,AskUserQuestion".to_string(),
+        tools,
     ];
 
     if let Some(sid) = &session_id {
@@ -384,6 +386,77 @@ async fn kill_claude_process(
 }
 
 #[tauri::command]
+async fn git_has_changes(cwd: String) -> Result<bool, String> {
+    use tokio::process::Command;
+    let output = Command::new("git")
+        .args(["status", "--porcelain"])
+        .current_dir(&cwd)
+        .output()
+        .await
+        .map_err(|e| format!("Failed to run git status: {}", e))?;
+    Ok(!output.stdout.is_empty())
+}
+
+#[tauri::command]
+async fn git_unpushed_count(cwd: String) -> Result<u32, String> {
+    use tokio::process::Command;
+    // Check if there's an upstream branch
+    let upstream = Command::new("git")
+        .args(["rev-parse", "--abbrev-ref", "@{u}"])
+        .current_dir(&cwd)
+        .output()
+        .await
+        .map_err(|e| format!("Failed to check upstream: {}", e))?;
+    if !upstream.status.success() {
+        return Ok(0);
+    }
+    let count_output = Command::new("git")
+        .args(["rev-list", "--count", "@{u}..HEAD"])
+        .current_dir(&cwd)
+        .output()
+        .await
+        .map_err(|e| format!("Failed to count unpushed: {}", e))?;
+    let count_str = String::from_utf8_lossy(&count_output.stdout).trim().to_string();
+    count_str.parse::<u32>().map_err(|e| format!("Failed to parse count: {}", e))
+}
+
+#[derive(Serialize)]
+pub struct GitPushResult {
+    success: bool,
+    message: String,
+}
+
+#[tauri::command]
+async fn git_push(cwd: String) -> Result<GitPushResult, String> {
+    use tokio::process::Command;
+    let branch_output = Command::new("git")
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
+        .current_dir(&cwd)
+        .output()
+        .await
+        .map_err(|e| format!("Failed to get branch: {}", e))?;
+    let branch = String::from_utf8_lossy(&branch_output.stdout).trim().to_string();
+    let push_output = Command::new("git")
+        .args(["push", "-u", "origin", &branch])
+        .current_dir(&cwd)
+        .output()
+        .await
+        .map_err(|e| format!("Failed to push: {}", e))?;
+    if push_output.status.success() {
+        Ok(GitPushResult {
+            success: true,
+            message: format!("Pushed to origin/{}", branch),
+        })
+    } else {
+        let stderr = String::from_utf8_lossy(&push_output.stderr).to_string();
+        Ok(GitPushResult {
+            success: false,
+            message: stderr,
+        })
+    }
+}
+
+#[tauri::command]
 async fn start_inspector_proxy(dev_server_url: String) -> Result<u16, String> {
     proxy::start_proxy(dev_server_url).await
 }
@@ -413,6 +486,9 @@ pub fn run() {
             execute_claude,
             execute_claude_interactive,
             kill_claude_process,
+            git_has_changes,
+            git_unpushed_count,
+            git_push,
             start_inspector_proxy,
             stop_inspector_proxy,
         ])

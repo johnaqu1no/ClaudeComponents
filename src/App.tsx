@@ -20,6 +20,7 @@ import {
   killClaudeProcess,
 } from "./lib/claude-orchestrator";
 import { createSnapshot, computeDiffs } from "./lib/diff-engine";
+import { gitHasChanges, getUnpushedCount, gitPush } from "./lib/git-service";
 import { loadSettings, saveSettings, loadHistory, saveHistory } from "./lib/settings";
 import { listen } from "@tauri-apps/api/event";
 import type { JSONContent } from "@tiptap/react";
@@ -487,6 +488,109 @@ function AppInner() {
     killClaudeProcess().catch(() => {});
   }, []);
 
+  // Refresh unpushed commit count
+  const refreshUnpushedCount = useCallback(async () => {
+    if (!state.repoPath) return;
+    try {
+      const count = await getUnpushedCount(state.repoPath);
+      dispatch({ type: "SET_UNPUSHED_COUNT", count });
+    } catch {
+      // Not a git repo or no remote — ignore
+    }
+  }, [state.repoPath]);
+
+  // Refresh count when phase transitions to ready (catches post-execution)
+  useEffect(() => {
+    if (state.phase === "ready") {
+      refreshUnpushedCount();
+    }
+  }, [state.phase, refreshUnpushedCount]);
+
+  // Handle commit via Claude
+  const handleCommit = useCallback(async () => {
+    if (!state.repoPath) return;
+    try {
+      const hasChanges = await gitHasChanges(state.repoPath);
+      if (!hasChanges) {
+        dispatch({ type: "SET_ERROR", error: "No uncommitted changes to commit." });
+        return;
+      }
+    } catch (err) {
+      dispatch({ type: "SET_ERROR", error: `Git check failed: ${err}` });
+      return;
+    }
+
+    const taskId = crypto.randomUUID();
+    const taskText = "Commit changes";
+    dispatch({
+      type: "ADD_TASK_HISTORY",
+      entry: {
+        id: taskId,
+        taskText,
+        timestamp: Date.now(),
+        status: "running",
+        result: null,
+        diffs: [],
+      },
+    });
+    dispatch({ type: "SET_PHASE", phase: "executing" });
+    dispatch({ type: "CLEAR_STREAM" });
+
+    const commitPrompt = `You are a git commit assistant. Review the current uncommitted changes and create well-scoped git commits with clear commit messages.
+
+Rules:
+- Use \`git add\` and \`git commit\` via the Bash tool
+- Create one commit per logical group of changes
+- Write clear, concise commit messages describing what changed and why
+- Do NOT amend, squash, or merge any existing commits
+- Do NOT push to any remote
+- Do NOT edit, create, or modify any source files
+- Only use Read to understand changes and Bash for git commands`;
+
+    try {
+      const result = await executeClaudeCodeInteractive(
+        commitPrompt,
+        state.repoPath,
+        undefined, // fresh session, no resume
+        "Read,Bash"
+      );
+      dispatch({ type: "SET_EXECUTION_RESULT", result });
+      dispatch({ type: "SET_PHASE", phase: "ready" });
+      dispatch({ type: "CLEAR_STREAM" });
+      dispatch({
+        type: "UPDATE_TASK_HISTORY",
+        id: taskId,
+        updates: { status: result.exitCode === 0 ? "success" : "failed", result },
+      });
+    } catch (err) {
+      dispatch({ type: "SET_ERROR", error: `Commit failed: ${err}` });
+      dispatch({ type: "SET_PHASE", phase: "ready" });
+      dispatch({ type: "CLEAR_STREAM" });
+      dispatch({
+        type: "UPDATE_TASK_HISTORY",
+        id: taskId,
+        updates: { status: "failed" },
+      });
+    }
+  }, [state.repoPath]);
+
+  // Handle sync (push)
+  const handleSync = useCallback(async () => {
+    if (!state.repoPath || state.isSyncing) return;
+    dispatch({ type: "SET_SYNCING", syncing: true });
+    try {
+      const result = await gitPush(state.repoPath);
+      if (!result.success) {
+        dispatch({ type: "SET_ERROR", error: `Push failed: ${result.message}` });
+      }
+    } catch (err) {
+      dispatch({ type: "SET_ERROR", error: `Push failed: ${err}` });
+    } finally {
+      dispatch({ type: "SET_SYNCING", syncing: false });
+      refreshUnpushedCount();
+    }
+  }, [state.repoPath, state.isSyncing, refreshUnpushedCount]);
+
   // Queue drain: when phase becomes ready and queue is non-empty, pop and execute
   useEffect(() => {
     if (state.phase === "ready" && queue.length > 0) {
@@ -642,6 +746,38 @@ function AppInner() {
               </div>
             )}
             <div className="toolbar-right">
+              {state.repoPath && (
+                <button
+                  className="toolbar-commit-btn"
+                  onClick={handleCommit}
+                  disabled={state.phase === "executing" || state.isSyncing}
+                  title="Commit changes with Claude"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="4" />
+                    <line x1="1.05" y1="12" x2="7" y2="12" />
+                    <line x1="17.01" y1="12" x2="22.96" y2="12" />
+                  </svg>
+                  Commit
+                </button>
+              )}
+              {state.unpushedCount > 0 && (
+                <button
+                  className="toolbar-sync-btn toolbar-icon-btn"
+                  onClick={handleSync}
+                  disabled={state.isSyncing}
+                  title={`Push ${state.unpushedCount} commit${state.unpushedCount !== 1 ? "s" : ""} to remote`}
+                >
+                  {state.isSyncing ? (
+                    <span className="spinner-small" style={{ margin: 0 }} />
+                  ) : (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21 12a9 9 0 0 1-9 9m0 0a9 9 0 0 1-9-9m9 9V3m0 0l3 3m-3-3l-3 3" />
+                    </svg>
+                  )}
+                  <span className="sync-badge">{state.unpushedCount}</span>
+                </button>
+              )}
               {state.components.length > 0 && (
                 <span className="toolbar-badge">
                   {state.components.length} components

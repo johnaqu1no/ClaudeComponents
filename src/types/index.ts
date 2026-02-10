@@ -108,6 +108,8 @@ export interface AppState {
   streamingLines: string[];
   settingsOpen: boolean;
   userQuestion: UserQuestion | null;
+  unpushedCount: number;
+  isSyncing: boolean;
 }
 
 export type AppAction =
@@ -136,4 +138,6 @@ export type AppAction =
   | { type: "LOAD_SETTINGS"; repoPath: string | null; devServerUrl: string | null }
   | { type: "SET_USER_QUESTION"; question: UserQuestion }
   | { type: "CLEAR_USER_QUESTION" }
+  | { type: "SET_UNPUSHED_COUNT"; count: number }
+  | { type: "SET_SYNCING"; syncing: boolean }
   | { type: "RESET" };

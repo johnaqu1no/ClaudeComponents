@@ -45,7 +45,8 @@ export async function executeClaudeCode(
 export async function executeClaudeCodeInteractive(
   prompt: string,
   cwd: string,
-  sessionId?: string
+  sessionId?: string,
+  allowedTools?: string
 ): Promise<ClaudeExecutionResult> {
   const result = await invoke<{
     stdout: string;
@@ -59,6 +60,7 @@ export async function executeClaudeCodeInteractive(
     prompt,
     cwd,
     sessionId: sessionId ?? null,
+    allowedTools: allowedTools ?? null,
   });
 
   return {
