@@ -1355,6 +1355,60 @@
   flex: 1;
 }
 
+/* ========== Tool Approval Modal ========== */
+.tool-approval-panel {
+  background: #1e1e2e;
+  border: 1px solid #313244;
+  border-radius: 12px;
+  width: 520px;
+  max-width: 90vw;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.tool-approval-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid #313244;
+}
+
+.tool-approval-header h2 {
+  font-size: 16px;
+  font-weight: 600;
+  color: #f9e2af;
+}
+
+.tool-approval-description {
+  font-size: 13px;
+  color: #a6adc8;
+  margin-bottom: 12px;
+}
+
+.tool-approval-command {
+  background: #11111b;
+  border: 1px solid #313244;
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  overflow-x: auto;
+}
+
+.tool-approval-command code {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #a6e3a1;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.tool-approval-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 /* ========== Component count (kept for compatibility) ========== */
 .component-count {
   font-size: 12px;

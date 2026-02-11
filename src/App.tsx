@@ -12,6 +12,7 @@ import { InspectorToggle } from "./components/InspectorToggle";
 import { TaskHistory } from "./components/TaskHistory";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { AskUserModal } from "./components/AskUserModal";
+import { ToolApprovalModal } from "./components/ToolApprovalModal";
 import { scanRepository } from "./lib/scanner";
 import { resolvePrompt } from "./lib/prompt-resolver";
 import {
@@ -24,7 +25,7 @@ import { gitHasChanges, getUnpushedCount, gitPush } from "./lib/git-service";
 import { loadSettings, saveSettings, loadHistory, saveHistory } from "./lib/settings";
 import { listen } from "@tauri-apps/api/event";
 import type { JSONContent } from "@tiptap/react";
-import type { ComponentInfo, FileSnapshot, QueuedMessage, UserQuestion } from "./types";
+import type { ComponentInfo, FileSnapshot, QueuedMessage, UserQuestion, ToolApproval } from "./types";
 import "./App.css";
 
 function formatTokens(n: number): string {
@@ -85,6 +86,29 @@ function detectUserQuestion(line: string): UserQuestion | null {
   return null;
 }
 
+function detectToolApproval(line: string): ToolApproval | null {
+  try {
+    const data = JSON.parse(line);
+    if (data.type === "assistant" && data.message?.content) {
+      for (const block of data.message.content) {
+        if (block.type === "tool_use" && block.name === "Bash") {
+          const input = block.input;
+          if (input?.command) {
+            return {
+              toolName: "Bash",
+              command: input.command,
+              description: input.description ?? undefined,
+            };
+          }
+        }
+      }
+    }
+  } catch {
+    // not JSON
+  }
+  return null;
+}
+
 function AppInner() {
   const [state, dispatch] = useReducer(appReducer, initialState);
   const editorRef = useRef<TaskEditorRef>(null);
@@ -102,6 +126,10 @@ function AppInner() {
   const autoAcceptRef = useRef(false);
   const [contextTokens, setContextTokens] = useState<number | null>(null);
   const userQuestionRef = useRef<UserQuestion | null>(null);
+  const toolApprovalRef = useRef<ToolApproval | null>(null);
+  const [autoApproveTools, setAutoApproveTools] = useState(false);
+  const autoApproveToolsRef = useRef(false);
+  const commitFlowRef = useRef(false);
   const currentTaskIdRef = useRef<string | null>(null);
 
   // Message queue
@@ -175,6 +203,17 @@ function AppInner() {
         userQuestionRef.current = question;
         dispatch({ type: "SET_USER_QUESTION", question });
         killClaudeProcess().catch(() => {});
+        return;
+      }
+
+      // Detect Bash tool_use in stream (unless auto-approve or commit flow)
+      if (!autoApproveToolsRef.current && !commitFlowRef.current) {
+        const approval = detectToolApproval(event.payload);
+        if (approval) {
+          toolApprovalRef.current = approval;
+          dispatch({ type: "SET_TOOL_APPROVAL", approval });
+          killClaudeProcess().catch(() => {});
+        }
       }
     });
     return () => {
@@ -302,6 +341,7 @@ function AppInner() {
       const taskId = currentTaskIdRef.current ?? crypto.randomUUID();
       currentTaskIdRef.current = taskId;
       userQuestionRef.current = null;
+      toolApprovalRef.current = null;
 
       const taskText =
         prompt.length > 80 ? prompt.slice(0, 80) + "..." : prompt;
@@ -326,11 +366,11 @@ function AppInner() {
 
       try {
         snapshotRef.current = await createSnapshot(state.repoPath);
-        let result = await executeClaudeCodeInteractive(prompt, state.repoPath, sessionIdRef.current);
+        let result = await executeClaudeCodeInteractive(prompt, state.repoPath, sessionIdRef.current, "Read,Edit,Write,Bash,AskUserQuestion");
 
-        // If a user question was detected, the process was killed.
+        // If a user question or tool approval was detected, the process was killed.
         // Keep the task "running" and return early — the modal handles resumption.
-        if (userQuestionRef.current) {
+        if (userQuestionRef.current || toolApprovalRef.current) {
           if (result.sessionId) {
             sessionIdRef.current = result.sessionId;
           }
@@ -363,11 +403,12 @@ function AppInner() {
           const retryResult = await executeClaudeCodeInteractive(
             "Do not plan or ask questions. Implement the changes now.",
             state.repoPath,
-            sessionIdRef.current
+            sessionIdRef.current,
+            "Read,Edit,Write,Bash,AskUserQuestion"
           );
 
-          // Check again for user question after retry
-          if (userQuestionRef.current) {
+          // Check again for user question or tool approval after retry
+          if (userQuestionRef.current || toolApprovalRef.current) {
             if (retryResult.sessionId) {
               sessionIdRef.current = retryResult.sessionId;
             }
@@ -403,8 +444,8 @@ function AppInner() {
           updates: { status: "success", result, diffs },
         });
       } catch (err) {
-        // Don't treat killed-for-question as a real error
-        if (userQuestionRef.current) return;
+        // Don't treat killed-for-question/approval as a real error
+        if (userQuestionRef.current || toolApprovalRef.current) return;
 
         dispatch({
           type: "SET_ERROR",
@@ -488,6 +529,37 @@ function AppInner() {
     killClaudeProcess().catch(() => {});
   }, []);
 
+  // Handle tool approval (approve/deny)
+  const handleApproveToolUse = useCallback(
+    (approved: boolean) => {
+      const tool = state.toolApproval;
+      dispatch({ type: "CLEAR_TOOL_APPROVAL" });
+      toolApprovalRef.current = null;
+      const message = approved
+        ? `I approved running the command: ${tool?.command ?? "the command"}. Please proceed and execute it.`
+        : `I denied the command: ${tool?.command ?? "the command"}. Please find an alternative approach that does not use this command.`;
+      executeTask(message);
+    },
+    [executeTask, state.toolApproval]
+  );
+
+  // Handle dismissing the tool approval modal (cancel the task)
+  const handleDismissToolApproval = useCallback(() => {
+    dispatch({ type: "CLEAR_TOOL_APPROVAL" });
+    dispatch({ type: "SET_PHASE", phase: "ready" });
+    dispatch({ type: "CLEAR_STREAM" });
+    toolApprovalRef.current = null;
+    if (currentTaskIdRef.current) {
+      dispatch({
+        type: "UPDATE_TASK_HISTORY",
+        id: currentTaskIdRef.current,
+        updates: { status: "failed" },
+      });
+      currentTaskIdRef.current = null;
+    }
+    killClaudeProcess().catch(() => {});
+  }, []);
+
   // Refresh unpushed commit count
   const refreshUnpushedCount = useCallback(async () => {
     if (!state.repoPath) return;
@@ -547,6 +619,7 @@ Rules:
 - Do NOT edit, create, or modify any source files
 - Only use Read to understand changes and Bash for git commands`;
 
+    commitFlowRef.current = true;
     try {
       const result = await executeClaudeCodeInteractive(
         commitPrompt,
@@ -571,6 +644,8 @@ Rules:
         id: taskId,
         updates: { status: "failed" },
       });
+    } finally {
+      commitFlowRef.current = false;
     }
   }, [state.repoPath]);
 
@@ -845,7 +920,7 @@ Rules:
             {/* Right: editor + streaming + history */}
             <div className="panel-right" style={{ width: chatCollapsed ? 0 : rightPanelWidth, display: chatCollapsed ? "none" : undefined }}>
 
-              {(state.phase === "ready" || state.phase === "executing" || state.phase === "reviewing" || state.phase === "asking_user") && (
+              {(state.phase === "ready" || state.phase === "executing" || state.phase === "reviewing" || state.phase === "asking_user" || state.phase === "approving_tool") && (
                 <div
                   className="editor-section"
                   onMouseOver={handleEditorMouseOver}
@@ -885,6 +960,17 @@ Rules:
                         }}
                       />
                       <span>Auto-accept</span>
+                    </label>
+                    <label className="auto-accept-toggle" title="Automatically approve tool commands without confirmation">
+                      <input
+                        type="checkbox"
+                        checked={autoApproveTools}
+                        onChange={(e) => {
+                          setAutoApproveTools(e.target.checked);
+                          autoApproveToolsRef.current = e.target.checked;
+                        }}
+                      />
+                      <span>Auto-approve tools</span>
                     </label>
                     <button
                       className="toolbar-icon-btn"
@@ -968,7 +1054,7 @@ Rules:
               )}
 
               {/* Streaming output during execution */}
-              {(state.phase === "executing" || state.phase === "asking_user") && state.streamingLines.length > 0 && (
+              {(state.phase === "executing" || state.phase === "asking_user" || state.phase === "approving_tool") && state.streamingLines.length > 0 && (
                 <div className="streaming-output" ref={streamRef} style={{ maxHeight: streamHeight, height: streamHeight }}>
                   {state.streamingLines.map((line, i) => (
                     <div key={i} className="stream-line">{line}</div>
@@ -1070,6 +1156,16 @@ Rules:
               question={state.userQuestion}
               onAnswer={handleAnswerQuestion}
               onDismiss={handleDismissQuestion}
+            />
+          )}
+
+          {/* Tool Approval modal */}
+          {state.toolApproval && (
+            <ToolApprovalModal
+              approval={state.toolApproval}
+              onApprove={() => handleApproveToolUse(true)}
+              onDeny={() => handleApproveToolUse(false)}
+              onCancel={handleDismissToolApproval}
             />
           )}
         </div>

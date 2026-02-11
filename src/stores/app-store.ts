@@ -18,6 +18,7 @@ export const initialState: AppState = {
   streamingLines: [],
   settingsOpen: false,
   userQuestion: null,
+  toolApproval: null,
   unpushedCount: 0,
   isSyncing: false,
 };
@@ -93,6 +94,10 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, userQuestion: action.question, phase: "asking_user" };
     case "CLEAR_USER_QUESTION":
       return { ...state, userQuestion: null };
+    case "SET_TOOL_APPROVAL":
+      return { ...state, toolApproval: action.approval, phase: "approving_tool" };
+    case "CLEAR_TOOL_APPROVAL":
+      return { ...state, toolApproval: null };
     case "SET_UNPUSHED_COUNT":
       return { ...state, unpushedCount: action.count };
     case "SET_SYNCING":

@@ -24,7 +24,8 @@ export type AppPhase =
   | "ready"
   | "executing"
   | "reviewing"
-  | "asking_user";
+  | "asking_user"
+  | "approving_tool";
 
 export interface ClaudeExecutionResult {
   stdout: string;
@@ -54,6 +55,12 @@ export interface UserQuestionOption {
 export interface UserQuestion {
   question: string;
   options: UserQuestionOption[];
+}
+
+export interface ToolApproval {
+  toolName: string;
+  command: string;
+  description?: string;
 }
 
 export interface ElementContext {
@@ -108,6 +115,7 @@ export interface AppState {
   streamingLines: string[];
   settingsOpen: boolean;
   userQuestion: UserQuestion | null;
+  toolApproval: ToolApproval | null;
   unpushedCount: number;
   isSyncing: boolean;
 }
@@ -138,6 +146,8 @@ export type AppAction =
   | { type: "LOAD_SETTINGS"; repoPath: string | null; devServerUrl: string | null }
   | { type: "SET_USER_QUESTION"; question: UserQuestion }
   | { type: "CLEAR_USER_QUESTION" }
+  | { type: "SET_TOOL_APPROVAL"; approval: ToolApproval }
+  | { type: "CLEAR_TOOL_APPROVAL" }
   | { type: "SET_UNPUSHED_COUNT"; count: number }
   | { type: "SET_SYNCING"; syncing: boolean }
   | { type: "RESET" };
