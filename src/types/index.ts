@@ -70,6 +70,8 @@ export interface ElementContext {
   textContent: string | null;
   selector: string;
   attributes?: Record<string, string>;
+  boundingRect?: { top: number; left: number; width: number; height: number } | null;
+  siblingIndex?: number | null;
 }
 
 export interface DetectedComponent {
@@ -96,6 +98,7 @@ export interface TaskHistoryEntry {
   diffs: FileDiff[];
   durationMs?: number;
   diffCount?: number;
+  chatLines?: string[];
 }
 
 export interface AppState {

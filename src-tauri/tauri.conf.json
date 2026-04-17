@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "claude-components",
+  "productName": "Claude Components",
   "version": "1.2.0",
   "identifier": "com.johnaquino.claude-components",
   "build": {

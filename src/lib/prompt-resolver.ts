@@ -47,8 +47,9 @@ function extractFromNode(
 
 export function resolvePrompt(
   doc: JSONContent,
-  componentMap: Map<string, ComponentInfo>
-): string {
+  componentMap: Map<string, ComponentInfo>,
+  knownComponentNames?: Set<string>
+): { prompt: string; referencedNames: string[] } | null {
   const textParts: string[] = [];
   const mentionIds = new Set<string>();
   const imagePaths: string[] = [];
@@ -60,12 +61,16 @@ export function resolvePrompt(
   }
 
   const taskText = textParts.join("").trim();
-  if (!taskText && imagePaths.length === 0) return "";
+  if (!taskText && imagePaths.length === 0) return null;
 
   const referencedComponents: ComponentInfo[] = [];
+  const referencedNames: string[] = [];
   for (const id of mentionIds) {
     const comp = componentMap.get(id);
-    if (comp) referencedComponents.push(comp);
+    if (comp) {
+      referencedComponents.push(comp);
+      referencedNames.push(comp.name);
+    }
   }
 
   let prompt = `Task:\n${taskText || "(see attached images)"}`;
@@ -73,7 +78,11 @@ export function resolvePrompt(
   if (referencedComponents.length > 0) {
     prompt += "\n\nReferenced Components:\n";
     for (const comp of referencedComponents) {
-      prompt += `\nComponent: ${comp.name}\nFile: ${comp.relativePath}\n\`\`\`tsx\n${comp.sourceText}\n\`\`\`\n`;
+      if (knownComponentNames?.has(comp.name)) {
+        prompt += `\nComponent: ${comp.name}\nFile: ${comp.relativePath}\n(source already provided earlier in this session)\n`;
+      } else {
+        prompt += `\nComponent: ${comp.name}\nFile: ${comp.relativePath}\n\`\`\`tsx\n${comp.sourceText}\n\`\`\`\n`;
+      }
     }
   }
 
@@ -86,5 +95,5 @@ export function resolvePrompt(
       "\n\nRead the attached images using the Read tool and implement the changes directly. Do not plan or ask for clarification.";
   }
 
-  return prompt;
+  return { prompt, referencedNames };
 }

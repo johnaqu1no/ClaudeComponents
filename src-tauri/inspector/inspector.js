@@ -143,6 +143,27 @@
       }
     }
 
+    // Index among siblings of the same tag (to distinguish duplicate components)
+    var siblingIndex = null;
+    if (element.parentElement && tag) {
+      var sameSiblings = element.parentElement.querySelectorAll(':scope > ' + tag);
+      for (var si = 0; si < sameSiblings.length; si++) {
+        if (sameSiblings[si] === element) {
+          siblingIndex = si;
+          break;
+        }
+      }
+    }
+
+    // Bounding rect so Claude can identify position in a grid/list
+    var rect = element.getBoundingClientRect ? element.getBoundingClientRect() : null;
+    var boundingRect = rect ? {
+      top: Math.round(rect.top),
+      left: Math.round(rect.left),
+      width: Math.round(rect.width),
+      height: Math.round(rect.height),
+    } : null;
+
     return {
       tag: tag,
       className: classes || null,
@@ -150,6 +171,8 @@
       textContent: truncatedText || null,
       selector: selector,
       attributes: Object.keys(attributes).length > 0 ? attributes : undefined,
+      siblingIndex: siblingIndex,
+      boundingRect: boundingRect,
     };
   }
 

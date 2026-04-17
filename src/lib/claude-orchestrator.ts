@@ -1,12 +1,9 @@
-import { Command } from "@tauri-apps/plugin-shell";
 import { invoke } from "@tauri-apps/api/core";
 import type { ClaudeExecutionResult } from "../types";
 
 export async function checkClaudeAvailable(): Promise<boolean> {
   try {
-    const cmd = Command.create("claude-cli", ["--version"]);
-    const output = await cmd.execute();
-    return output.code === 0;
+    return await invoke<boolean>("check_claude_cli");
   } catch {
     return false;
   }

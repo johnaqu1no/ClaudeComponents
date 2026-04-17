@@ -114,9 +114,11 @@ function AppInner() {
   const editorRef = useRef<TaskEditorRef>(null);
   const snapshotRef = useRef<Map<string, FileSnapshot>>(new Map());
   const sessionIdRef = useRef<string | undefined>(undefined);
+  const sentComponentsRef = useRef<Set<string>>(new Set());
   const promptHistoryRef = useRef<JSONContent[]>([]);
   const historyIndexRef = useRef(-1);
   const [rightPanelWidth, setRightPanelWidth] = useState(380);
+  const [queueModalItem, setQueueModalItem] = useState<QueuedMessage | null>(null);
   const [isResizing, setIsResizing] = useState(false);
   const resizingRef = useRef(false);
   const [chatCollapsed, setChatCollapsed] = useState(false);
@@ -131,6 +133,7 @@ function AppInner() {
   const autoApproveToolsRef = useRef(false);
   const commitFlowRef = useRef(false);
   const currentTaskIdRef = useRef<string | null>(null);
+  const taskChatLinesRef = useRef<string[]>([]);
 
   // Message queue
   const [queue, setQueue] = useState<QueuedMessage[]>([]);
@@ -195,6 +198,7 @@ function AppInner() {
       const parsed = parseStreamLine(event.payload);
       if (parsed) {
         dispatch({ type: "APPEND_STREAM_LINE", line: parsed });
+        taskChatLinesRef.current.push(parsed);
       }
 
       // Detect AskUserQuestion tool_use in stream
@@ -299,14 +303,28 @@ function AppInner() {
   // Build the fully resolved prompt from a doc + current context
   const buildPrompt = useCallback(
     (doc: JSONContent): string | null => {
-      let prompt = resolvePrompt(doc, componentMap);
-      if (!prompt) return null;
+      const knownNames = sessionIdRef.current ? sentComponentsRef.current : undefined;
+      const resolved = resolvePrompt(doc, componentMap, knownNames);
+      if (!resolved) return null;
+
+      let { prompt, referencedNames } = resolved;
 
       if (
         state.selectedComponent &&
-        !prompt.includes(`Component: ${state.selectedComponent.name}\n`)
+        !referencedNames.includes(state.selectedComponent.name)
       ) {
-        prompt += `\n\nSelected Component:\n\nComponent: ${state.selectedComponent.name}\nFile: ${state.selectedComponent.relativePath}\n\`\`\`tsx\n${state.selectedComponent.sourceText}\n\`\`\`\n`;
+        const isKnown = knownNames?.has(state.selectedComponent.name);
+        if (isKnown) {
+          prompt += `\n\nSelected Component:\n\nComponent: ${state.selectedComponent.name}\nFile: ${state.selectedComponent.relativePath}\n(source already provided earlier in this session)\n`;
+        } else {
+          prompt += `\n\nSelected Component:\n\nComponent: ${state.selectedComponent.name}\nFile: ${state.selectedComponent.relativePath}\n\`\`\`tsx\n${state.selectedComponent.sourceText}\n\`\`\`\n`;
+          referencedNames.push(state.selectedComponent.name);
+        }
+      }
+
+      // Track newly sent component names so future turns skip re-embedding source
+      for (const name of referencedNames) {
+        sentComponentsRef.current.add(name);
       }
 
       if (state.selectedElement) {
@@ -324,6 +342,12 @@ function AppInner() {
         if (el.textContent) {
           prompt += `\nElement text content: "${el.textContent}"`;
         }
+        if (el.siblingIndex !== undefined && el.siblingIndex !== null) {
+          prompt += `\nThis is element #${el.siblingIndex + 1} (1-based) among its same-tag siblings in the parent`;
+        }
+        if (el.boundingRect) {
+          prompt += `\nElement position on screen: top=${el.boundingRect.top}px, left=${el.boundingRect.left}px, size=${el.boundingRect.width}x${el.boundingRect.height}px`;
+        }
         prompt += "\n";
       }
 
@@ -338,10 +362,13 @@ function AppInner() {
       if (!state.repoPath) return;
 
       // If resuming from a user question, reuse the existing task ID
+      const isResume = currentTaskIdRef.current !== null;
       const taskId = currentTaskIdRef.current ?? crypto.randomUUID();
       currentTaskIdRef.current = taskId;
       userQuestionRef.current = null;
       toolApprovalRef.current = null;
+      // Reset chat lines only for fresh tasks, not resumes
+      if (!isResume) taskChatLinesRef.current = [];
 
       const taskText =
         prompt.length > 80 ? prompt.slice(0, 80) + "..." : prompt;
@@ -388,8 +415,11 @@ function AppInner() {
 
         let diffs = await computeDiffs(state.repoPath, snapshotRef.current);
 
-        // Auto-continue: if Claude planned but made no changes, retry once
+        // Auto-continue: if Claude planned but made no changes, retry once.
+        // Only do this on the initial task run, not on resumes from question/approval,
+        // to avoid wasting tokens when Claude is mid-conversation.
         if (
+          !isResume &&
           result.exitCode === 0 &&
           diffs.length === 0 &&
           sessionIdRef.current
@@ -441,7 +471,7 @@ function AppInner() {
         dispatch({
           type: "UPDATE_TASK_HISTORY",
           id: taskId,
-          updates: { status: "success", result, diffs },
+          updates: { status: "success", result, diffs, chatLines: [...taskChatLinesRef.current] },
         });
       } catch (err) {
         // Don't treat killed-for-question/approval as a real error
@@ -950,6 +980,28 @@ Rules:
                         "Run with Claude"
                       )}
                     </button>
+                    {state.phase === "executing" && (
+                      <button
+                        className="btn-stop"
+                        onClick={() => {
+                          killClaudeProcess().catch(() => {});
+                          setQueue([]);
+                          if (currentTaskIdRef.current) {
+                            dispatch({
+                              type: "UPDATE_TASK_HISTORY",
+                              id: currentTaskIdRef.current,
+                              updates: { status: "failed", chatLines: [...taskChatLinesRef.current] },
+                            });
+                            currentTaskIdRef.current = null;
+                          }
+                          dispatch({ type: "SET_PHASE", phase: "ready" });
+                          dispatch({ type: "CLEAR_STREAM" });
+                        }}
+                        title="Stop current Claude process"
+                      >
+                        Stop
+                      </button>
+                    )}
                     <label className="auto-accept-toggle" title="Automatically accept all changes without review">
                       <input
                         type="checkbox"
@@ -1025,12 +1077,16 @@ Rules:
                       <div
                         key={item.id}
                         className="queue-item"
-                        onDoubleClick={() => {
+                        onClick={() => setQueueModalItem(item)}
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
                           // Remove from queue and put back in editor for editing
                           setQueue((prev) => prev.filter((q) => q.id !== item.id));
+                          setQueueModalItem(null);
                           editorRef.current?.setContent(item.doc);
                           editorRef.current?.focus();
                         }}
+                        title="Click to expand · Double-click to edit"
                       >
                         <span className="queue-item-number">{i + 1}</span>
                         <span className="queue-item-text" title={item.promptText}>
@@ -1085,6 +1141,7 @@ Rules:
                         className="btn-ghost"
                         onClick={() => {
                           sessionIdRef.current = undefined;
+                          sentComponentsRef.current.clear();
                           setContextTokens(null);
                           dispatch({ type: "CLEAR_TASK_HISTORY" });
                         }}
@@ -1167,6 +1224,44 @@ Rules:
               onDeny={() => handleApproveToolUse(false)}
               onCancel={handleDismissToolApproval}
             />
+          )}
+
+          {/* Queue item expand modal */}
+          {queueModalItem && (
+            <div className="modal-backdrop" onClick={() => setQueueModalItem(null)}>
+              <div className="modal-box task-chat-modal" onClick={(e) => e.stopPropagation()}>
+                <div className="modal-header">
+                  <span className="modal-title">Queued Task</span>
+                  <button className="modal-close" onClick={() => setQueueModalItem(null)}>✕</button>
+                </div>
+                <div className="task-chat-body">
+                  <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{queueModalItem.prompt}</pre>
+                </div>
+                <div className="modal-footer" style={{ display: "flex", gap: 8 }}>
+                  <button
+                    className="btn-secondary btn-sm"
+                    onClick={() => {
+                      setQueue((prev) => prev.filter((q) => q.id !== queueModalItem.id));
+                      editorRef.current?.setContent(queueModalItem.doc);
+                      editorRef.current?.focus();
+                      setQueueModalItem(null);
+                    }}
+                  >
+                    Edit
+                  </button>
+                  <button
+                    className="btn-secondary btn-sm"
+                    style={{ marginLeft: "auto" }}
+                    onClick={() => {
+                      setQueue((prev) => prev.filter((q) => q.id !== queueModalItem.id));
+                      setQueueModalItem(null);
+                    }}
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
+            </div>
           )}
         </div>
       </AppDispatchContext.Provider>

@@ -6,6 +6,24 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use walkdir::WalkDir;
 
+/// Resolve the full path to the `claude` binary.
+/// macOS GUI apps inherit a minimal PATH, so we check common install locations.
+fn resolve_claude_binary() -> String {
+    let candidates = [
+        dirs::home_dir().map(|h| h.join(".local/bin/claude")),
+        dirs::home_dir().map(|h| h.join(".npm-global/bin/claude")),
+        Some(PathBuf::from("/usr/local/bin/claude")),
+        Some(PathBuf::from("/opt/homebrew/bin/claude")),
+    ];
+    for candidate in candidates.iter().flatten() {
+        if candidate.exists() {
+            return candidate.to_string_lossy().into_owned();
+        }
+    }
+    // Fall back to bare name and hope PATH works
+    "claude".to_string()
+}
+
 struct ClaudeProcessState {
     pid: Mutex<Option<u32>>,
 }
@@ -150,14 +168,15 @@ async fn execute_claude(
         args.push(sid.clone());
     }
 
-    let mut child = Command::new("claude")
+    let claude_bin = resolve_claude_binary();
+    let mut child = Command::new(&claude_bin)
         .args(&args)
         .current_dir(&cwd)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| format!("Failed to spawn claude: {}", e))?;
+        .map_err(|e| format!("Failed to spawn claude (tried '{}'): {}", claude_bin, e))?;
 
     // Write prompt to stdin and drop to close the pipe
     if let Some(mut stdin) = child.stdin.take() {
@@ -272,14 +291,15 @@ async fn execute_claude_interactive(
         args.push(sid.clone());
     }
 
-    let mut child = Command::new("claude")
+    let claude_bin = resolve_claude_binary();
+    let mut child = Command::new(&claude_bin)
         .args(&args)
         .current_dir(&cwd)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| format!("Failed to spawn claude: {}", e))?;
+        .map_err(|e| format!("Failed to spawn claude (tried '{}'): {}", claude_bin, e))?;
 
     // Store the child PID so we can kill it later
     if let Some(pid) = child.id() {
@@ -457,6 +477,12 @@ async fn git_push(cwd: String) -> Result<GitPushResult, String> {
 }
 
 #[tauri::command]
+fn check_claude_cli() -> Result<bool, String> {
+    let bin = resolve_claude_binary();
+    Ok(std::path::Path::new(&bin).exists())
+}
+
+#[tauri::command]
 async fn start_inspector_proxy(dev_server_url: String) -> Result<u16, String> {
     proxy::start_proxy(dev_server_url).await
 }
@@ -486,6 +512,7 @@ pub fn run() {
             execute_claude,
             execute_claude_interactive,
             kill_claude_process,
+            check_claude_cli,
             git_has_changes,
             git_unpushed_count,
             git_push,
