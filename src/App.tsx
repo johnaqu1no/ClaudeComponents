@@ -1129,6 +1129,12 @@ Rules:
               {state.phase === "idle" && !state.repoPath && (
                 <div className="panel-empty-state">
                   <p>Open settings to select a project folder and dev server.</p>
+                  <button
+                    className="btn-primary"
+                    onClick={() => dispatch({ type: "SET_SETTINGS_OPEN", open: true })}
+                  >
+                    Open Settings
+                  </button>
                 </div>
               )}
 
@@ -1136,6 +1142,20 @@ Rules:
                 <div className="task-history-header">
                   <span className="section-label">History</span>
                   <div className="task-history-actions">
+                    <button
+                      className="btn-ghost"
+                      onClick={() => {
+                        sessionIdRef.current = undefined;
+                        sentComponentsRef.current.clear();
+                        setContextTokens(null);
+                        editorRef.current?.clear();
+                        editorRef.current?.focus();
+                      }}
+                      title="Start a new chat (keeps history)"
+                      disabled={state.phase === "executing"}
+                    >
+                      New Chat
+                    </button>
                     {state.taskHistory.length > 0 && (
                       <button
                         className="btn-ghost"
