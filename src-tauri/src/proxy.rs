@@ -123,8 +123,11 @@ pub async fn stop_proxy() -> Result<(), String> {
     Ok(())
 }
 
-/// No-op replacement for /@vite/client — prevents HMR WebSocket reconnect loop
+/// No-op replacement for /@vite/client — prevents HMR WebSocket reconnect loop.
+/// It still loads /@vite/env like the real client does: that module is how Vite
+/// sets `define` globals in dev, and an app reading one crashes without it.
 const VITE_CLIENT_NOOP: &str = r#"
+import "/@vite/env";
 const noop = () => {};
 const hot = { accept:noop, dispose:noop, prune:noop, decline:noop, invalidate:noop, on:noop, send:noop, data:{} };
 export function createHotContext() { return hot; }
