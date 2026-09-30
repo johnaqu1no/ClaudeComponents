@@ -713,12 +713,13 @@ Rules:
 - Do NOT amend, squash, or merge any existing commits
 - Do NOT push to any remote
 - Do NOT edit, create, or modify any source files
-- Only use Read to understand changes and Bash for git commands`;
+- Review the changes with \`git status\` and \`git diff\` only; don't open files one by one
+- Always pass the message with \`-m\` so git never waits for an editor`;
 
     commitFlowRef.current = true;
     try {
       // A fresh session: committing should not see, or add to, the chat's context.
-      await runSideTask({ label: "Commit changes", prompt: commitPrompt, tools: "Read,Bash", resume: false });
+      await runSideTask({ label: "Commit changes", prompt: commitPrompt, tools: "Bash", resume: false });
     } finally {
       commitFlowRef.current = false;
     }
