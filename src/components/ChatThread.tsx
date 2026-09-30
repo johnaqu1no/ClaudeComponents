@@ -6,9 +6,10 @@ import type { TaskHistoryEntry } from "../types";
 interface ChatThreadProps {
   /** The current chat's tasks, oldest first. */
   entries: TaskHistoryEntry[];
-  /** The task Claude is working on, whose activity is still streaming in. */
-  liveTaskId: string | null;
-  liveActivity: ActivityItem[];
+  /** Activity still streaming in, by task id: the main agent's and any parallel ones. */
+  liveActivity: Record<string, ActivityItem[]>;
+  /** Stops the parallel agent running this task. */
+  onStopAgent?: (taskId: string) => void;
 }
 
 /** Within this many pixels of the bottom counts as "following" the chat. */
@@ -28,7 +29,7 @@ function EntryMeta({ entry }: { entry: TaskHistoryEntry }) {
   );
 }
 
-export function ChatThread({ entries, liveTaskId, liveActivity }: ChatThreadProps) {
+export function ChatThread({ entries, liveActivity, onStopAgent }: ChatThreadProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const followingRef = useRef(true);
 
@@ -57,10 +58,20 @@ export function ChatThread({ entries, liveTaskId, liveActivity }: ChatThreadProp
       }}
     >
       {entries.map((entry) => {
-        const live = entry.id === liveTaskId && entry.status === "running";
-        const items = live ? liveActivity : entry.activity ?? [];
+        const live = entry.status === "running" && entry.id in liveActivity;
+        const items = live ? liveActivity[entry.id] : entry.activity ?? [];
         return (
-          <div key={entry.id} className="chat-turn">
+          <div key={entry.id} className={`chat-turn${entry.agentLabel ? " parallel" : ""}`}>
+            {entry.agentLabel && (
+              <div className="chat-agent-tag">
+                {entry.agentLabel}
+                {live && onStopAgent && (
+                  <button className="chat-agent-stop" onClick={() => onStopAgent(entry.id)} title={`Stop ${entry.agentLabel}`}>
+                    Stop
+                  </button>
+                )}
+              </div>
+            )}
             <div className="chat-user">{entry.promptText ?? entry.taskText}</div>
             {items.length > 0 ? (
               <ActivityFeed items={items} finished={!live} />

@@ -1,5 +1,4 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { ClaudeExecutionResult } from "../types";
 
 export async function checkClaudeAvailable(): Promise<boolean> {
   try {
@@ -7,76 +6,4 @@ export async function checkClaudeAvailable(): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-export async function executeClaudeCode(
-  prompt: string,
-  cwd: string,
-  model: string,
-  sessionId?: string
-): Promise<ClaudeExecutionResult> {
-  const result = await invoke<{
-    stdout: string;
-    stderr: string;
-    exitCode: number;
-    durationMs: number;
-    sessionId: string | null;
-    inputTokens: number | null;
-    outputTokens: number | null;
-  }>("execute_claude", {
-    prompt,
-    cwd,
-    model,
-    sessionId: sessionId ?? null,
-  });
-
-  return {
-    stdout: result.stdout,
-    stderr: result.stderr,
-    exitCode: result.exitCode,
-    durationMs: result.durationMs,
-    sessionId: result.sessionId ?? undefined,
-    inputTokens: result.inputTokens ?? undefined,
-    outputTokens: result.outputTokens ?? undefined,
-  };
-}
-
-export async function executeClaudeCodeInteractive(
-  prompt: string,
-  cwd: string,
-  model: string,
-  sessionId?: string,
-  allowedTools?: string,
-  autoCompact = true
-): Promise<ClaudeExecutionResult> {
-  const result = await invoke<{
-    stdout: string;
-    stderr: string;
-    exitCode: number;
-    durationMs: number;
-    sessionId: string | null;
-    inputTokens: number | null;
-    outputTokens: number | null;
-  }>("execute_claude_interactive", {
-    prompt,
-    cwd,
-    model,
-    sessionId: sessionId ?? null,
-    allowedTools: allowedTools ?? null,
-    autoCompact,
-  });
-
-  return {
-    stdout: result.stdout,
-    stderr: result.stderr,
-    exitCode: result.exitCode,
-    durationMs: result.durationMs,
-    sessionId: result.sessionId ?? undefined,
-    inputTokens: result.inputTokens ?? undefined,
-    outputTokens: result.outputTokens ?? undefined,
-  };
-}
-
-export async function killClaudeProcess(): Promise<void> {
-  await invoke("kill_claude_process");
 }

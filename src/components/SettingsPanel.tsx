@@ -3,6 +3,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { useAppState, useAppDispatch } from "../stores/app-store";
 import { CLAUDE_MODELS } from "../lib/models";
 import { listBranches, switchBranch } from "../lib/git-service";
+import { setTypesafeKey, typesafeKeyStatus } from "../lib/agents";
 
 export function SettingsPanel() {
   const { settingsOpen, repoPath, devServerUrl, model, recentProjects, branch, phase } = useAppState();
@@ -39,6 +40,27 @@ export function SettingsPanel() {
     }
   };
   const branchLocked = switching || phase === "executing";
+
+  // The key itself never comes back from the keychain; only whether one is set.
+  const [hasTypesafeKey, setHasTypesafeKey] = useState<boolean | null>(null);
+  const [keyInput, setKeyInput] = useState("");
+  const [keyError, setKeyError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!settingsOpen) return;
+    typesafeKeyStatus()
+      .then(setHasTypesafeKey)
+      .catch(() => setHasTypesafeKey(false));
+  }, [settingsOpen]);
+  const saveKey = async (value: string) => {
+    setKeyError(null);
+    try {
+      await setTypesafeKey(value);
+      setHasTypesafeKey(value.trim().length > 0);
+      setKeyInput("");
+    } catch (err) {
+      setKeyError(String(err));
+    }
+  };
 
   // Switching projects swaps the URL too, so the box has to follow it.
   useEffect(() => {
@@ -184,6 +206,44 @@ export function SettingsPanel() {
               ))}
             </select>
           </div>
+        </div>
+
+        <div className="settings-section">
+          <label className="settings-label">Parallel agents (TypeSafe)</label>
+          <p className="settings-description">
+            With a TypeSafe API key, a message sent while Claude is busy is checked by Jev. Separate
+            work starts on a new agent right away; follow-ups wait for the running task. Without a
+            key, every message sent mid-task is queued. The key is kept in your macOS keychain.
+          </p>
+          <div className="settings-row">
+            <input
+              type="password"
+              className="settings-input"
+              placeholder={hasTypesafeKey ? "Key saved. Paste a new one to replace it" : "apikey_…"}
+              value={keyInput}
+              autoComplete="off"
+              onChange={(e) => setKeyInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && keyInput.trim()) saveKey(keyInput);
+              }}
+            />
+            <button className="btn-primary btn-sm" disabled={!keyInput.trim()} onClick={() => saveKey(keyInput)}>
+              Save
+            </button>
+            {hasTypesafeKey && (
+              <button className="btn-secondary btn-sm" onClick={() => saveKey("")}>
+                Remove
+              </button>
+            )}
+          </div>
+          <p className="settings-hint">
+            {hasTypesafeKey === null
+              ? "Checking…"
+              : hasTypesafeKey
+                ? "Key saved. Messages sent mid-task are routed."
+                : "No key. Messages sent mid-task are queued."}
+          </p>
+          {keyError && <p className="settings-error">{keyError}</p>}
         </div>
 
         <div className="settings-section">

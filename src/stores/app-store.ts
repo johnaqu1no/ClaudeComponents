@@ -69,6 +69,11 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, components: action.components, phase: "ready" };
     case "SET_DIFFS":
       return { ...state, diffs: action.diffs };
+    case "ADD_DIFFS": {
+      // A parallel agent's changes join whatever is already waiting for review.
+      const incoming = new Set(action.diffs.map((d) => d.filePath));
+      return { ...state, diffs: [...state.diffs.filter((d) => !incoming.has(d.filePath)), ...action.diffs] };
+    }
     case "SET_EXECUTION_RESULT":
       return { ...state, executionResult: action.result };
     case "UPDATE_DIFF":

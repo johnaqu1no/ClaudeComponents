@@ -89,6 +89,10 @@ export interface QueuedMessage {
   prompt: string;
   promptText: string;
   timestamp: number;
+  /** What the user typed, for the chat bubble when it runs. */
+  displayText?: string;
+  /** Why it was queued rather than handed to a new agent. */
+  routeReason?: string;
 }
 
 export interface TaskHistoryEntry {
@@ -96,6 +100,8 @@ export interface TaskHistoryEntry {
   taskText: string;
   /** What the user typed, shown in the chat. Missing on older entries. */
   promptText?: string;
+  /** Set when a parallel agent ran this task, e.g. "Agent 2". */
+  agentLabel?: string;
   timestamp: number;
   status: "running" | "success" | "failed";
   result: ClaudeExecutionResult | null;
@@ -148,6 +154,7 @@ export type AppAction =
   | { type: "SET_REPO"; path: string }
   | { type: "SET_COMPONENTS"; components: ComponentInfo[] }
   | { type: "SET_DIFFS"; diffs: FileDiff[] }
+  | { type: "ADD_DIFFS"; diffs: FileDiff[] }
   | { type: "SET_EXECUTION_RESULT"; result: ClaudeExecutionResult }
   | { type: "UPDATE_DIFF"; filePath: string; accepted: boolean }
   | { type: "ACCEPT_ALL" }

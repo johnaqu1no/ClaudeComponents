@@ -2143,3 +2143,82 @@ code.activity-detail {
 .chat-meta.failed {
   color: #f38ba8;
 }
+
+/* ========== Parallel agents ========== */
+.chat-turn.parallel {
+  border-left: 2px solid #89b4fa;
+  padding-left: 10px;
+}
+
+.chat-agent-tag {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-end;
+  margin-bottom: -4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #89b4fa;
+}
+
+.queue-item-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.queue-item-body .queue-item-text {
+  flex: none;
+}
+
+.queue-item-reason {
+  font-size: 10px;
+  color: #6c7086;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queue-item-run {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: #89b4fa;
+  cursor: pointer;
+}
+
+.queue-item-run:hover:not(:disabled) {
+  background: #313244;
+}
+
+.queue-item-run:disabled {
+  color: #45475a;
+  cursor: not-allowed;
+}
+
+.chat-agent-stop {
+  padding: 1px 6px;
+  border: 1px solid rgba(243, 139, 168, 0.5);
+  border-radius: 4px;
+  background: none;
+  color: #f38ba8;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  cursor: pointer;
+}
+
+.chat-agent-stop:hover {
+  background: rgba(243, 139, 168, 0.12);
+}

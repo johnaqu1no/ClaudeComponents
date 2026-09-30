@@ -1,10 +1,12 @@
+mod agents;
+mod claims;
 mod proxy;
+mod route;
 mod usage;
 
 use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use walkdir::WalkDir;
 
 /// Resolve the full path to the `claude` binary.
@@ -23,10 +25,6 @@ fn resolve_claude_binary() -> String {
     }
     // Fall back to bare name and hope PATH works
     "claude".to_string()
-}
-
-struct ClaudeProcessState {
-    pid: Mutex<Option<u32>>,
 }
 
 #[derive(Serialize)]
@@ -142,300 +140,6 @@ fn write_binary_file(path: String, data: Vec<u8>) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn execute_claude(
-    app: tauri::AppHandle,
-    prompt: String,
-    cwd: String,
-    model: Option<String>,
-    session_id: Option<String>,
-) -> Result<serde_json::Value, String> {
-    use std::process::Stdio;
-    use tauri::Emitter;
-    use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
-    use tokio::process::Command;
-
-    let start = std::time::Instant::now();
-
-    let mut args = vec![
-        "-p".to_string(),
-        "--verbose".to_string(),
-        "--output-format".to_string(),
-        "stream-json".to_string(),
-        "--allowedTools".to_string(),
-        "Read,Edit,Write".to_string(),
-    ];
-
-    if let Some(m) = model.as_deref().filter(|m| !m.is_empty()) {
-        args.push("--model".to_string());
-        args.push(m.to_string());
-    }
-
-    if let Some(sid) = &session_id {
-        args.push("--resume".to_string());
-        args.push(sid.clone());
-    }
-
-    let claude_bin = resolve_claude_binary();
-    let mut child = Command::new(&claude_bin)
-        .args(&args)
-        .current_dir(&cwd)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("Failed to spawn claude (tried '{}'): {}", claude_bin, e))?;
-
-    // Write prompt to stdin and drop to close the pipe
-    if let Some(mut stdin) = child.stdin.take() {
-        stdin
-            .write_all(prompt.as_bytes())
-            .await
-            .map_err(|e| format!("Failed to write to stdin: {}", e))?;
-    }
-
-    let stdout_pipe = child.stdout.take().unwrap();
-    let stderr_pipe = child.stderr.take().unwrap();
-
-    // Read stdout line by line, emitting each as a Tauri event
-    let app_clone = app.clone();
-    let stdout_task = tokio::spawn(async move {
-        let reader = BufReader::new(stdout_pipe);
-        let mut lines = reader.lines();
-        let mut collected: Vec<String> = Vec::new();
-        while let Ok(Some(line)) = lines.next_line().await {
-            let _ = app_clone.emit("claude-stream", &line);
-            collected.push(line);
-        }
-        collected
-    });
-
-    // Collect stderr
-    let stderr_task = tokio::spawn(async move {
-        let mut buf = String::new();
-        let mut reader = BufReader::new(stderr_pipe);
-        reader.read_to_string(&mut buf).await.ok();
-        buf
-    });
-
-    let status = child.wait().await.map_err(|e| format!("Failed to wait: {}", e))?;
-    let stdout_lines = stdout_task.await.map_err(|e| e.to_string())?;
-    let stderr = stderr_task.await.map_err(|e| e.to_string())?;
-
-    let duration_ms = start.elapsed().as_millis() as u64;
-    let exit_code = status.code().unwrap_or(-1);
-
-    // Parse session_id, result, and usage from the stream-json output
-    let mut parsed_session_id: Option<String> = None;
-    let mut result_text = String::new();
-    let mut input_tokens: Option<u64> = None;
-    let mut output_tokens: Option<u64> = None;
-    for line in &stdout_lines {
-        if let Ok(val) = serde_json::from_str::<serde_json::Value>(line) {
-            if let Some(sid) = val.get("session_id").and_then(|s| s.as_str()) {
-                parsed_session_id = Some(sid.to_string());
-            }
-            if val.get("type").and_then(|t| t.as_str()) == Some("result") {
-                if let Some(r) = val.get("result").and_then(|r| r.as_str()) {
-                    result_text = r.to_string();
-                }
-            }
-            if let Some(usage) = val.get("usage") {
-                if let Some(it) = usage.get("input_tokens").and_then(|v| v.as_u64()) {
-                    input_tokens = Some(it);
-                }
-                if let Some(ot) = usage.get("output_tokens").and_then(|v| v.as_u64()) {
-                    output_tokens = Some(ot);
-                }
-            }
-        }
-    }
-
-    let stdout = if result_text.is_empty() {
-        stdout_lines.join("\n")
-    } else {
-        result_text
-    };
-
-    Ok(serde_json::json!({
-        "stdout": stdout,
-        "stderr": stderr,
-        "exitCode": exit_code,
-        "durationMs": duration_ms,
-        "sessionId": parsed_session_id,
-        "inputTokens": input_tokens,
-        "outputTokens": output_tokens,
-    }))
-}
-
-#[tauri::command]
-async fn execute_claude_interactive(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, ClaudeProcessState>,
-    prompt: String,
-    cwd: String,
-    model: Option<String>,
-    session_id: Option<String>,
-    allowed_tools: Option<String>,
-    auto_compact: Option<bool>,
-) -> Result<serde_json::Value, String> {
-    use std::process::Stdio;
-    use tauri::Emitter;
-    use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
-    use tokio::process::Command;
-
-    let start = std::time::Instant::now();
-
-    let tools = allowed_tools.unwrap_or_else(|| "Read,Edit,Write,AskUserQuestion".to_string());
-    let mut args = vec![
-        "-p".to_string(),
-        "--verbose".to_string(),
-        "--output-format".to_string(),
-        "stream-json".to_string(),
-        "--allowedTools".to_string(),
-        tools,
-    ];
-
-    if let Some(m) = model.as_deref().filter(|m| !m.is_empty()) {
-        args.push("--model".to_string());
-        args.push(m.to_string());
-    }
-
-    if let Some(sid) = &session_id {
-        args.push("--resume".to_string());
-        args.push(sid.clone());
-    }
-
-    let claude_bin = resolve_claude_binary();
-    // Claude Code compacts on its own near a full context. DISABLE_AUTO_COMPACT
-    // stops only that; a manual /compact (the Compact button) still works.
-    let mut command = Command::new(&claude_bin);
-    if auto_compact == Some(false) {
-        command.env("DISABLE_AUTO_COMPACT", "1");
-    } else {
-        command.env_remove("DISABLE_AUTO_COMPACT");
-    }
-    let mut child = command
-        .args(&args)
-        .current_dir(&cwd)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("Failed to spawn claude (tried '{}'): {}", claude_bin, e))?;
-
-    // Store the child PID so we can kill it later
-    if let Some(pid) = child.id() {
-        *state.pid.lock().unwrap() = Some(pid);
-    }
-
-    // Write prompt to stdin and drop to close the pipe
-    if let Some(mut stdin) = child.stdin.take() {
-        stdin
-            .write_all(prompt.as_bytes())
-            .await
-            .map_err(|e| format!("Failed to write to stdin: {}", e))?;
-    }
-
-    let stdout_pipe = child.stdout.take().unwrap();
-    let stderr_pipe = child.stderr.take().unwrap();
-
-    // Read stdout line by line, emitting each as a Tauri event
-    let app_clone = app.clone();
-    let stdout_task = tokio::spawn(async move {
-        let reader = BufReader::new(stdout_pipe);
-        let mut lines = reader.lines();
-        let mut collected: Vec<String> = Vec::new();
-        while let Ok(Some(line)) = lines.next_line().await {
-            let _ = app_clone.emit("claude-stream", &line);
-            collected.push(line);
-        }
-        collected
-    });
-
-    // Collect stderr
-    let stderr_task = tokio::spawn(async move {
-        let mut buf = String::new();
-        let mut reader = BufReader::new(stderr_pipe);
-        reader.read_to_string(&mut buf).await.ok();
-        buf
-    });
-
-    let status = child.wait().await.map_err(|e| format!("Failed to wait: {}", e))?;
-
-    // Clear PID after process ends
-    *state.pid.lock().unwrap() = None;
-
-    let stdout_lines = stdout_task.await.map_err(|e| e.to_string())?;
-    let stderr = stderr_task.await.map_err(|e| e.to_string())?;
-
-    let duration_ms = start.elapsed().as_millis() as u64;
-    let exit_code = status.code().unwrap_or(-1);
-
-    // Parse session_id, result, and usage from the stream-json output
-    let mut parsed_session_id: Option<String> = None;
-    let mut result_text = String::new();
-    let mut input_tokens: Option<u64> = None;
-    let mut output_tokens: Option<u64> = None;
-    for line in &stdout_lines {
-        if let Ok(val) = serde_json::from_str::<serde_json::Value>(line) {
-            if let Some(sid) = val.get("session_id").and_then(|s| s.as_str()) {
-                parsed_session_id = Some(sid.to_string());
-            }
-            if val.get("type").and_then(|t| t.as_str()) == Some("result") {
-                if let Some(r) = val.get("result").and_then(|r| r.as_str()) {
-                    result_text = r.to_string();
-                }
-            }
-            if let Some(usage) = val.get("usage") {
-                if let Some(it) = usage.get("input_tokens").and_then(|v| v.as_u64()) {
-                    input_tokens = Some(it);
-                }
-                if let Some(ot) = usage.get("output_tokens").and_then(|v| v.as_u64()) {
-                    output_tokens = Some(ot);
-                }
-            }
-        }
-    }
-
-    let stdout = if result_text.is_empty() {
-        stdout_lines.join("\n")
-    } else {
-        result_text
-    };
-
-    Ok(serde_json::json!({
-        "stdout": stdout,
-        "stderr": stderr,
-        "exitCode": exit_code,
-        "durationMs": duration_ms,
-        "sessionId": parsed_session_id,
-        "inputTokens": input_tokens,
-        "outputTokens": output_tokens,
-    }))
-}
-
-#[tauri::command]
-async fn kill_claude_process(
-    state: tauri::State<'_, ClaudeProcessState>,
-) -> Result<(), String> {
-    let pid = state.pid.lock().unwrap().take();
-    if let Some(pid) = pid {
-        #[cfg(unix)]
-        unsafe {
-            libc::kill(pid as i32, libc::SIGKILL);
-        }
-        // libc has no kill on Windows. /T takes Claude's child processes with it.
-        #[cfg(windows)]
-        {
-            let _ = std::process::Command::new("taskkill")
-                .args(["/PID", &pid.to_string(), "/T", "/F"])
-                .output();
-        }
-    }
-    Ok(())
-}
-
-#[tauri::command]
 async fn git_has_changes(cwd: String) -> Result<bool, String> {
     use tokio::process::Command;
     let output = Command::new("git")
@@ -525,6 +229,71 @@ async fn git_switch_branch(cwd: String, branch: String, create: bool) -> Result<
     }
 }
 
+/// One turn on a long-lived agent process; see agents.rs.
+#[allow(clippy::too_many_arguments)]
+#[tauri::command]
+async fn agent_run_turn(
+    app: tauri::AppHandle,
+    manager: tauri::State<'_, agents::AgentManager>,
+    agent_id: String,
+    agent_label: String,
+    prompt: String,
+    cwd: String,
+    model: Option<String>,
+    session_id: Option<String>,
+    allowed_tools: String,
+    auto_compact: bool,
+    one_shot: bool,
+) -> Result<serde_json::Value, String> {
+    manager
+        .run_turn(
+            &app,
+            agents::TurnRequest {
+                agent_id,
+                agent_label,
+                prompt,
+                cwd,
+                model,
+                session_id,
+                allowed_tools,
+                auto_compact,
+                one_shot,
+            },
+        )
+        .await
+}
+
+#[tauri::command]
+async fn agent_kill(manager: tauri::State<'_, agents::AgentManager>, agent_id: String) -> Result<(), String> {
+    manager.kill(&agent_id).await;
+    Ok(())
+}
+
+#[tauri::command]
+async fn agent_kill_all(manager: tauri::State<'_, agents::AgentManager>) -> Result<(), String> {
+    manager.kill_all().await;
+    Ok(())
+}
+
+#[tauri::command]
+async fn typesafe_key_status() -> Result<bool, String> {
+    Ok(route::read_key().await.is_some())
+}
+
+#[tauri::command]
+async fn typesafe_set_key(key: String) -> Result<(), String> {
+    route::write_key(&key).await
+}
+
+#[tauri::command]
+async fn route_message(
+    running_request: String,
+    files_changed: Vec<String>,
+    new_message: String,
+) -> Result<route::Route, String> {
+    route::route(&running_request, &files_changed, &new_message).await
+}
+
 #[tauri::command]
 async fn claude_plan_usage() -> Result<usage::PlanUsage, String> {
     usage::plan_usage().await
@@ -608,6 +377,12 @@ fn disable_text_substitutions() {
 }
 
 pub fn run() {
+    // Started by Claude Code as an agent's edit hook: answer and exit, no window.
+    if let Some(code) = claims::run_hook_from_args() {
+        std::process::exit(code);
+    }
+    claims::reset();
+
     #[cfg(target_os = "macos")]
     disable_text_substitutions();
 
@@ -616,9 +391,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
-        .manage(ClaudeProcessState {
-            pid: Mutex::new(None),
-        })
+        .manage(agents::AgentManager::default())
         .invoke_handler(tauri::generate_handler![
             read_directory_recursive,
             read_file_contents,
@@ -626,9 +399,6 @@ pub fn run() {
             write_file_contents,
             write_binary_file,
             delete_file,
-            execute_claude,
-            execute_claude_interactive,
-            kill_claude_process,
             check_claude_cli,
             git_has_changes,
             git_unpushed_count,
@@ -637,6 +407,12 @@ pub fn run() {
             git_list_branches,
             git_switch_branch,
             claude_plan_usage,
+            agent_run_turn,
+            agent_kill,
+            agent_kill_all,
+            typesafe_key_status,
+            typesafe_set_key,
+            route_message,
             start_inspector_proxy,
             stop_inspector_proxy,
         ])

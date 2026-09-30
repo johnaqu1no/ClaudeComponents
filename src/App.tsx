@@ -30,11 +30,20 @@ import { AskUserModal } from "./components/AskUserModal";
 import { ToolApprovalModal } from "./components/ToolApprovalModal";
 import { scanRepository } from "./lib/scanner";
 import { resolvePrompt } from "./lib/prompt-resolver";
+import { checkClaudeAvailable } from "./lib/claude-orchestrator";
 import {
-  checkClaudeAvailable,
-  executeClaudeCodeInteractive,
-  killClaudeProcess,
-} from "./lib/claude-orchestrator";
+  COMMIT_AGENT,
+  MAIN_AGENT,
+  MAIN_TOOLS,
+  MAX_PARALLEL_AGENTS,
+  ROUTE_MIN_CONFIDENCE,
+  filesEditedBy,
+  killAgent,
+  routeMessage,
+  runAgentTurn,
+  typesafeKeyStatus,
+  type AgentStreamEvent,
+} from "./lib/agents";
 import { createSnapshot, computeDiffs } from "./lib/diff-engine";
 import { gitHasChanges, getUnpushedCount, gitPush } from "./lib/git-service";
 import { loadSettings, saveSettings, loadHistory, saveHistory } from "./lib/settings";
@@ -43,6 +52,13 @@ import { listen } from "@tauri-apps/api/event";
 import type { JSONContent } from "@tiptap/react";
 import type { ComponentInfo, FileSnapshot, QueuedMessage, UserQuestion, ToolApproval } from "./types";
 import "./App.css";
+
+interface ParallelAgent {
+  id: string;
+  label: string;
+  taskId: string;
+  activity: ActivityItem[];
+}
 
 function detectUserQuestion(line: string): UserQuestion | null {
   try {
@@ -130,6 +146,16 @@ function AppInner() {
   const [chatStartedAt, setChatStartedAt] = useState(() => Date.now());
   const [rightTab, setRightTab] = useState<"chat" | "history">("chat");
   const [screenshots, setScreenshots] = useState<ScreenshotToast[]>([]);
+  // Agents working alongside the main one. The ref mirrors activity so code
+  // awaiting a run can read it without waiting for a render.
+  const [parallelAgents, setParallelAgents] = useState<ParallelAgent[]>([]);
+  const parallelActivityRef = useRef<Record<string, ActivityItem[]>>({});
+  const parallelCountRef = useRef(0);
+  const agentNumberRef = useRef(1);
+  // Set when a parallel agent overlapped the main run, so its diff is limited
+  // to the files it edited itself.
+  const mainOverlappedRef = useRef(false);
+  const typesafeReadyRef = useRef(false);
   const dismissScreenshot = useCallback((id: string) => {
     setScreenshots((prev) => prev.filter((toast) => toast.id !== id));
   }, []);
@@ -181,19 +207,31 @@ function AppInner() {
 
   // Listen for Claude streaming events
   useEffect(() => {
-    const unlistenPromise = listen<string>("claude-stream", (event) => {
-      dispatch({ type: "APPLY_STREAM_EVENT", line: event.payload });
-      taskActivityRef.current = applyStreamLine(taskActivityRef.current, event.payload);
+    const unlistenPromise = listen<AgentStreamEvent>("agent-stream", (event) => {
+      const { agentId, line } = event.payload;
+      const onMain = agentId === MAIN_AGENT || agentId === COMMIT_AGENT;
+
+      if (onMain) {
+        dispatch({ type: "APPLY_STREAM_EVENT", line });
+        taskActivityRef.current = applyStreamLine(taskActivityRef.current, line);
+      } else {
+        const next = applyStreamLine(parallelActivityRef.current[agentId] ?? [], line);
+        parallelActivityRef.current[agentId] = next;
+        setParallelAgents((prev) => prev.map((agent) => (agent.id === agentId ? { ...agent, activity: next } : agent)));
+      }
 
       // Each assistant message reports how full the context is at that point.
-      const context = contextFromStreamLine(event.payload);
-      if (context !== null) setContextTokens(context);
+      if (agentId === MAIN_AGENT) {
+        const context = contextFromStreamLine(line);
+        if (context !== null) setContextTokens(context);
+      }
 
       // Any image a tool hands back is a screenshot Claude took or looked at.
-      const images = imagesInStreamLine(event.payload);
+      const images = imagesInStreamLine(line);
       if (images.length > 0) {
+        const activity = onMain ? taskActivityRef.current : parallelActivityRef.current[agentId] ?? [];
         const added = images.map(({ toolUseId, src }, index) => {
-          const tool = taskActivityRef.current.find(
+          const tool = activity.find(
             (item): item is Extract<ActivityItem, { kind: "tool" }> => item.kind === "tool" && item.id === toolUseId
           );
           const label = tool ? toolLabel(tool.name, tool.input) : null;
@@ -206,22 +244,26 @@ function AppInner() {
         setScreenshots((prev) => [...prev, ...added]);
       }
 
+      // Questions and approvals are only for the main agent: parallel agents run
+      // without AskUserQuestion, and with Bash only when tools are auto-approved.
+      if (agentId !== MAIN_AGENT) return;
+
       // Detect AskUserQuestion tool_use in stream
-      const question = detectUserQuestion(event.payload);
+      const question = detectUserQuestion(line);
       if (question) {
         userQuestionRef.current = question;
         dispatch({ type: "SET_USER_QUESTION", question });
-        killClaudeProcess().catch(() => {});
+        killAgent(MAIN_AGENT).catch(() => {});
         return;
       }
 
-      // Detect Bash tool_use in stream (unless auto-approve or commit flow)
-      if (!autoApproveToolsRef.current && !commitFlowRef.current) {
-        const approval = detectToolApproval(event.payload);
+      // Detect Bash tool_use in stream (unless auto-approve)
+      if (!autoApproveToolsRef.current) {
+        const approval = detectToolApproval(line);
         if (approval) {
           toolApprovalRef.current = approval;
           dispatch({ type: "SET_TOOL_APPROVAL", approval });
-          killClaudeProcess().catch(() => {});
+          killAgent(MAIN_AGENT).catch(() => {});
         }
       }
     });
@@ -229,6 +271,14 @@ function AppInner() {
       unlistenPromise.then((fn) => fn());
     };
   }, []);
+
+  // Routing needs a TypeSafe key; re-check after Settings closes in case it changed.
+  useEffect(() => {
+    if (state.settingsOpen) return;
+    typesafeKeyStatus()
+      .then((ready) => (typesafeReadyRef.current = ready))
+      .catch(() => (typesafeReadyRef.current = false));
+  }, [state.settingsOpen]);
 
   // Load saved settings + check Claude CLI on mount
   useEffect(() => {
@@ -418,7 +468,27 @@ function AppInner() {
 
       try {
         snapshotRef.current = await createSnapshot(state.repoPath);
-        let result = await executeClaudeCodeInteractive(prompt, state.repoPath, state.model, sessionIdRef.current, "Read,Edit,Write,Bash,AskUserQuestion", autoCompactRef.current);
+        if (!isResume) mainOverlappedRef.current = parallelCountRef.current > 0;
+        const mainTurn = (text: string) =>
+          runAgentTurn({
+            agentId: MAIN_AGENT,
+            agentLabel: "the main agent",
+            prompt: text,
+            cwd: state.repoPath!,
+            model: state.model,
+            sessionId: sessionIdRef.current,
+            tools: MAIN_TOOLS,
+            autoCompact: autoCompactRef.current,
+          });
+        // Other agents edit the same folder, so a run that overlapped them only
+        // owns the files it wrote to itself.
+        const ownDiffs = async () => {
+          const all = await computeDiffs(state.repoPath!, snapshotRef.current);
+          if (!mainOverlappedRef.current) return all;
+          const own = new Set(filesEditedBy(taskActivityRef.current));
+          return all.filter((diff) => own.has(diff.filePath));
+        };
+        let result = await mainTurn(prompt);
 
         // If a user question or tool approval was detected, the process was killed.
         // Keep the task "running" and return early — the modal handles resumption.
@@ -434,7 +504,7 @@ function AppInner() {
         }
         dispatch({ type: "SET_EXECUTION_RESULT", result });
 
-        let diffs = await computeDiffs(state.repoPath, snapshotRef.current);
+        let diffs = await ownDiffs();
 
         // Auto-continue: if Claude planned but made no changes, retry once.
         // Only do this on the initial task run, not on resumes from question/approval,
@@ -448,14 +518,7 @@ function AppInner() {
           addActivityNote("No changes detected, continuing with the implementation…");
 
           snapshotRef.current = await createSnapshot(state.repoPath);
-          const retryResult = await executeClaudeCodeInteractive(
-            "Do not plan or ask questions. Implement the changes now.",
-            state.repoPath,
-            state.model,
-            sessionIdRef.current,
-            "Read,Edit,Write,Bash,AskUserQuestion",
-            autoCompactRef.current
-          );
+          const retryResult = await mainTurn("Do not plan or ask questions. Implement the changes now.");
 
           // Check again for user question or tool approval after retry
           if (userQuestionRef.current || toolApprovalRef.current) {
@@ -470,7 +533,7 @@ function AppInner() {
           }
           result = retryResult;
           dispatch({ type: "SET_EXECUTION_RESULT", result: retryResult });
-          diffs = await computeDiffs(state.repoPath, snapshotRef.current);
+          diffs = await ownDiffs();
         }
 
         dispatch({ type: "SET_DIFFS", diffs });
@@ -509,6 +572,82 @@ function AppInner() {
     [state.repoPath, state.taskHistory, state.model]
   );
 
+  /**
+   * Runs a task on a new agent next to the main one, in its own fresh session.
+   * The edit hook keeps it off files another agent is changing.
+   */
+  const startParallelAgent = useCallback(
+    async (prompt: string, displayText: string, reason?: string) => {
+      const repo = state.repoPath;
+      if (!repo) return;
+      const number = ++agentNumberRef.current;
+      const agent: ParallelAgent = { id: `agent-${number}`, label: `Agent ${number}`, taskId: crypto.randomUUID(), activity: [] };
+      const firstNote = reason ? [noteItem(reason, [])] : [];
+      parallelActivityRef.current[agent.id] = firstNote;
+      parallelCountRef.current += 1;
+      if (state.phase === "executing") mainOverlappedRef.current = true;
+      setParallelAgents((prev) => [...prev, { ...agent, activity: firstNote }]);
+      dispatch({
+        type: "ADD_TASK_HISTORY",
+        entry: {
+          id: agent.taskId,
+          taskText: displayText.length > 80 ? displayText.slice(0, 80) + "..." : displayText,
+          promptText: displayText,
+          agentLabel: agent.label,
+          timestamp: Date.now(),
+          status: "running",
+          result: null,
+          diffs: [],
+        },
+      });
+
+      try {
+        const before = await createSnapshot(repo);
+        const result = await runAgentTurn({
+          agentId: agent.id,
+          agentLabel: agent.label,
+          prompt,
+          cwd: repo,
+          model: state.model,
+          // No questions (there is one modal, and it belongs to the main agent),
+          // and Bash only when tool commands are auto-approved anyway.
+          tools: autoApproveToolsRef.current ? "Read,Edit,Write,Bash" : "Read,Edit,Write",
+          autoCompact: autoCompactRef.current,
+          oneShot: true,
+        });
+        const activity = parallelActivityRef.current[agent.id] ?? [];
+        const own = new Set(filesEditedBy(activity));
+        const diffs = own.size > 0 ? (await computeDiffs(repo, before)).filter((d) => own.has(d.filePath)) : [];
+        if (diffs.length > 0) {
+          if (autoAcceptRef.current) window.dispatchEvent(new Event("reload-webview"));
+          else dispatch({ type: "ADD_DIFFS", diffs });
+        }
+        dispatch({
+          type: "UPDATE_TASK_HISTORY",
+          id: agent.taskId,
+          updates: {
+            status: result.exitCode === 0 ? "success" : "failed",
+            result,
+            diffs,
+            activity: compactActivity(activity),
+          },
+        });
+      } catch (err) {
+        dispatch({ type: "SET_ERROR", error: `${agent.label} failed: ${err}` });
+        dispatch({
+          type: "UPDATE_TASK_HISTORY",
+          id: agent.taskId,
+          updates: { status: "failed", activity: compactActivity(parallelActivityRef.current[agent.id] ?? []) },
+        });
+      } finally {
+        delete parallelActivityRef.current[agent.id];
+        parallelCountRef.current -= 1;
+        setParallelAgents((prev) => prev.filter((a) => a.id !== agent.id));
+      }
+    },
+    [state.repoPath, state.model, state.phase]
+  );
+
   const handleSubmit = useCallback(
     async (doc: JSONContent) => {
       if (!state.repoPath) return;
@@ -521,8 +660,41 @@ function AppInner() {
       historyIndexRef.current = -1;
       editorRef.current?.clear();
 
-      // If currently executing, queue the message instead
+      // While the main agent is busy, Jev decides whether this is separate work
+      // a new agent can start now. Anything else, or no API key, is queued.
       if (state.phase === "executing") {
+        const displayText = docToText(doc);
+        let routeReason = "Waiting for the running task";
+        const running = state.taskHistory.find((t) => t.id === currentTaskIdRef.current);
+        const canRoute =
+          typesafeReadyRef.current && !!running && !commitFlowRef.current && parallelCountRef.current < MAX_PARALLEL_AGENTS;
+        if (canRoute) {
+          try {
+            const repo = state.repoPath;
+            const files = filesEditedBy(taskActivityRef.current).map((path) =>
+              path.startsWith(repo + "/") ? path.slice(repo.length + 1) : path
+            );
+            const route = await routeMessage(running.promptText ?? running.taskText, files, displayText);
+            if (route.choice === "independent" && route.confidence >= ROUTE_MIN_CONFIDENCE) {
+              startParallelAgent(
+                prompt,
+                displayText,
+                `Started alongside the running task: it looked like separate work (${Math.round(route.confidence * 100)}% sure).`
+              );
+              return;
+            }
+            routeReason =
+              route.choice === "same_task"
+                ? "Part of the running task, so it goes to the same agent next"
+                : route.choice === "after_running"
+                  ? "Needs the running task to finish first"
+                  : "Might be separate work, but not sure enough to split it off";
+          } catch (err) {
+            routeReason = `Couldn't route it (${err}), so it waits its turn`;
+          }
+        } else if (typesafeReadyRef.current && parallelCountRef.current >= MAX_PARALLEL_AGENTS) {
+          routeReason = `${MAX_PARALLEL_AGENTS} agents are already running`;
+        }
         const promptText = prompt.length > 80 ? prompt.slice(0, 80) + "..." : prompt;
         setQueue((prev) => [
           ...prev,
@@ -531,6 +703,8 @@ function AppInner() {
             doc,
             prompt,
             promptText,
+            displayText,
+            routeReason,
             timestamp: Date.now(),
           },
         ]);
@@ -541,7 +715,7 @@ function AppInner() {
 
       await executeTask(prompt, docToText(doc));
     },
-    [state.repoPath, state.phase, buildPrompt, executeTask]
+    [state.repoPath, state.phase, state.taskHistory, buildPrompt, executeTask, startParallelAgent]
   );
 
   // Handle user answering the AskUserQuestion modal
@@ -572,7 +746,7 @@ function AppInner() {
       });
       currentTaskIdRef.current = null;
     }
-    killClaudeProcess().catch(() => {});
+    killAgent(MAIN_AGENT).catch(() => {});
   }, []);
 
   // Handle tool approval (approve/deny)
@@ -604,7 +778,7 @@ function AppInner() {
       });
       currentTaskIdRef.current = null;
     }
-    killClaudeProcess().catch(() => {});
+    killAgent(MAIN_AGENT).catch(() => {});
   }, []);
 
   // Refresh unpushed commit count
@@ -643,14 +817,18 @@ function AppInner() {
       dispatch({ type: "CLEAR_STREAM" });
 
       try {
-        const result = await executeClaudeCodeInteractive(
+        // Resuming runs on the chat's own warm agent; otherwise a throwaway one.
+        const result = await runAgentTurn({
+          agentId: resume ? MAIN_AGENT : COMMIT_AGENT,
+          agentLabel: resume ? "the main agent" : "the commit agent",
           prompt,
-          state.repoPath,
-          state.model,
-          resume ? sessionIdRef.current : undefined,
+          cwd: state.repoPath,
+          model: state.model,
+          sessionId: resume ? sessionIdRef.current : undefined,
           tools,
-          autoCompactRef.current
-        );
+          autoCompact: autoCompactRef.current,
+          oneShot: !resume,
+        });
         if (resume && result.sessionId) sessionIdRef.current = result.sessionId;
         dispatch({ type: "SET_EXECUTION_RESULT", result });
         // Stop already marked it and moved on; don't overwrite that.
@@ -687,7 +865,7 @@ function AppInner() {
       dispatch({ type: "SET_ERROR", error: "Nothing to compact yet. Send a message first." });
       return;
     }
-    await runSideTask({ label: "Compact conversation", prompt: "/compact", tools: "Read", resume: true });
+    await runSideTask({ label: "Compact conversation", prompt: "/compact", tools: MAIN_TOOLS, resume: true });
   }, [runSideTask]);
 
   // Handle commit via Claude
@@ -880,6 +1058,13 @@ Rules:
   // A failed scan leaves the phase idle, but Claude can still work on the folder.
   const canRun = !!state.repoPath && state.phase !== "scanning";
 
+  // Everything still streaming, by task: the main agent's run and any parallel ones.
+  const mainLive =
+    state.phase === "executing" || state.phase === "asking_user" || state.phase === "approving_tool";
+  const liveActivity: Record<string, ActivityItem[]> = {};
+  if (mainLive && currentTaskIdRef.current) liveActivity[currentTaskIdRef.current] = state.activity;
+  for (const agent of parallelAgents) liveActivity[agent.taskId] = agent.activity;
+
   const chatEntries = useMemo(
     () => state.taskHistory.filter((entry) => entry.timestamp >= chatStartedAt).reverse(),
     [state.taskHistory, chatStartedAt]
@@ -940,8 +1125,12 @@ Rules:
                 <button
                   className="toolbar-commit-btn"
                   onClick={handleCommit}
-                  disabled={state.phase === "executing" || state.isSyncing}
-                  title="Commit changes with Claude"
+                  disabled={state.phase === "executing" || state.isSyncing || parallelAgents.length > 0}
+                  title={
+                    parallelAgents.length > 0
+                      ? "Wait for the other agents to finish, so their half-done work isn't committed"
+                      : "Commit changes with Claude"
+                  }
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <circle cx="12" cy="12" r="4" />
@@ -1116,12 +1305,11 @@ Rules:
                 {rightTab === "chat" ? (
                   <ChatThread
                     entries={chatEntries}
-                    liveTaskId={
-                      state.phase === "executing" || state.phase === "asking_user" || state.phase === "approving_tool"
-                        ? currentTaskIdRef.current
-                        : null
-                    }
-                    liveActivity={state.activity}
+                    liveActivity={liveActivity}
+                    onStopAgent={(taskId) => {
+                      const agent = parallelAgents.find((a) => a.taskId === taskId);
+                      if (agent) killAgent(agent.id).catch(() => {});
+                    }}
                   />
                 ) : (
                   <TaskHistory />
@@ -1157,9 +1345,30 @@ Rules:
                         title="Click to expand · Double-click to edit"
                       >
                         <span className="queue-item-number">{i + 1}</span>
-                        <span className="queue-item-text" title={item.promptText}>
-                          {item.promptText}
+                        <span className="queue-item-body">
+                          <span className="queue-item-text" title={item.promptText}>
+                            {item.displayText ?? item.promptText}
+                          </span>
+                          {item.routeReason && <span className="queue-item-reason">{item.routeReason}</span>}
                         </span>
+                        <button
+                          className="queue-item-run"
+                          disabled={parallelAgents.length >= MAX_PARALLEL_AGENTS}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setQueue((prev) => prev.filter((q) => q.id !== item.id));
+                            startParallelAgent(item.prompt, item.displayText ?? item.promptText, "Started as a new agent from the queue.");
+                          }}
+                          title={
+                            parallelAgents.length >= MAX_PARALLEL_AGENTS
+                              ? `${MAX_PARALLEL_AGENTS} agents are already running`
+                              : "Run now on a new agent, alongside the current task"
+                          }
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M5 12h14M13 6l6 6-6 6" />
+                          </svg>
+                        </button>
                         <button
                           className="queue-item-cancel"
                           onClick={() =>
@@ -1246,7 +1455,8 @@ Rules:
                         <button
                           className="btn-stop"
                           onClick={() => {
-                            killClaudeProcess().catch(() => {});
+                            killAgent(MAIN_AGENT).catch(() => {});
+                            killAgent(COMMIT_AGENT).catch(() => {});
                             setQueue([]);
                             if (currentTaskIdRef.current) {
                               dispatch({
