@@ -46,7 +46,8 @@ export async function executeClaudeCodeInteractive(
   cwd: string,
   model: string,
   sessionId?: string,
-  allowedTools?: string
+  allowedTools?: string,
+  autoCompact = true
 ): Promise<ClaudeExecutionResult> {
   const result = await invoke<{
     stdout: string;
@@ -62,6 +63,7 @@ export async function executeClaudeCodeInteractive(
     model,
     sessionId: sessionId ?? null,
     allowedTools: allowedTools ?? null,
+    autoCompact,
   });
 
   return {

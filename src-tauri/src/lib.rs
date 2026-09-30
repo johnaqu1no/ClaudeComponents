@@ -276,6 +276,7 @@ async fn execute_claude_interactive(
     model: Option<String>,
     session_id: Option<String>,
     allowed_tools: Option<String>,
+    auto_compact: Option<bool>,
 ) -> Result<serde_json::Value, String> {
     use std::process::Stdio;
     use tauri::Emitter;
@@ -305,7 +306,15 @@ async fn execute_claude_interactive(
     }
 
     let claude_bin = resolve_claude_binary();
-    let mut child = Command::new(&claude_bin)
+    // Claude Code compacts on its own near a full context. DISABLE_AUTO_COMPACT
+    // stops only that; a manual /compact (the Compact button) still works.
+    let mut command = Command::new(&claude_bin);
+    if auto_compact == Some(false) {
+        command.env("DISABLE_AUTO_COMPACT", "1");
+    } else {
+        command.env_remove("DISABLE_AUTO_COMPACT");
+    }
+    let mut child = command
         .args(&args)
         .current_dir(&cwd)
         .stdin(Stdio::piped())

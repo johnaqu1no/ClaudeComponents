@@ -538,6 +538,10 @@
   gap: 4px;
 }
 
+.editor-toggles .auto-accept-toggle {
+  white-space: nowrap;
+}
+
 .editor-actions-right {
   display: flex;
   align-items: center;

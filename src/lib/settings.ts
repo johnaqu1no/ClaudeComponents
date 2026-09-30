@@ -8,6 +8,8 @@ export interface PersistedSettings {
   /** Missing in settings saved before model selection existed. */
   model?: string | null;
   recentProjects?: RecentProject[];
+  /** Let Claude Code compact on its own. Missing means on, its default. */
+  autoCompact?: boolean;
 }
 
 const SETTINGS_FILE = "settings.json";

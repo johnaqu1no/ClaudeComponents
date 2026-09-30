@@ -115,6 +115,10 @@ function AppInner() {
   const toolApprovalRef = useRef<ToolApproval | null>(null);
   const [autoApproveTools, setAutoApproveTools] = useState(false);
   const autoApproveToolsRef = useRef(false);
+  // Read when a run starts, so a ref keeps every call site current without
+  // re-creating the callbacks that start runs.
+  const [autoCompact, setAutoCompact] = useState(true);
+  const autoCompactRef = useRef(true);
   const commitFlowRef = useRef(false);
   const currentTaskIdRef = useRef<string | null>(null);
   const taskActivityRef = useRef<ActivityItem[]>([]);
@@ -241,6 +245,10 @@ function AppInner() {
           recentProjects: settings.recentProjects ?? [],
         });
       }
+      if (settings.autoCompact === false) {
+        setAutoCompact(false);
+        autoCompactRef.current = false;
+      }
     });
     loadHistory().then((entries) => {
       if (entries.length > 0) {
@@ -254,13 +262,16 @@ function AppInner() {
   const prevUrlRef = useRef(state.devServerUrl);
   const prevModelRef = useRef(state.model);
   const prevRecentRef = useRef(state.recentProjects);
+  const prevAutoCompactRef = useRef(autoCompact);
   useEffect(() => {
     if (
       state.repoPath !== prevRepoRef.current ||
       state.devServerUrl !== prevUrlRef.current ||
       state.model !== prevModelRef.current ||
-      state.recentProjects !== prevRecentRef.current
+      state.recentProjects !== prevRecentRef.current ||
+      autoCompact !== prevAutoCompactRef.current
     ) {
+      prevAutoCompactRef.current = autoCompact;
       prevRepoRef.current = state.repoPath;
       prevUrlRef.current = state.devServerUrl;
       prevModelRef.current = state.model;
@@ -270,9 +281,10 @@ function AppInner() {
         devServerUrl: state.devServerUrl,
         model: state.model,
         recentProjects: state.recentProjects,
+        autoCompact,
       });
     }
-  }, [state.repoPath, state.devServerUrl, state.model, state.recentProjects]);
+  }, [state.repoPath, state.devServerUrl, state.model, state.recentProjects, autoCompact]);
 
   // Persist task history to disk
   const historyInitRef = useRef(true);
@@ -406,7 +418,7 @@ function AppInner() {
 
       try {
         snapshotRef.current = await createSnapshot(state.repoPath);
-        let result = await executeClaudeCodeInteractive(prompt, state.repoPath, state.model, sessionIdRef.current, "Read,Edit,Write,Bash,AskUserQuestion");
+        let result = await executeClaudeCodeInteractive(prompt, state.repoPath, state.model, sessionIdRef.current, "Read,Edit,Write,Bash,AskUserQuestion", autoCompactRef.current);
 
         // If a user question or tool approval was detected, the process was killed.
         // Keep the task "running" and return early — the modal handles resumption.
@@ -441,7 +453,8 @@ function AppInner() {
             state.repoPath,
             state.model,
             sessionIdRef.current,
-            "Read,Edit,Write,Bash,AskUserQuestion"
+            "Read,Edit,Write,Bash,AskUserQuestion",
+            autoCompactRef.current
           );
 
           // Check again for user question or tool approval after retry
@@ -635,7 +648,8 @@ function AppInner() {
           state.repoPath,
           state.model,
           resume ? sessionIdRef.current : undefined,
-          tools
+          tools,
+          autoCompactRef.current
         );
         if (resume && result.sessionId) sessionIdRef.current = result.sessionId;
         dispatch({ type: "SET_EXECUTION_RESULT", result });
@@ -1198,6 +1212,20 @@ Rules:
                           }}
                         />
                         <span>Auto-approve tools</span>
+                      </label>
+                      <label
+                        className="auto-accept-toggle"
+                        title="Let Claude Code summarise the conversation on its own when the context gets full. Compact still works either way."
+                      >
+                        <input
+                          type="checkbox"
+                          checked={autoCompact}
+                          onChange={(e) => {
+                            setAutoCompact(e.target.checked);
+                            autoCompactRef.current = e.target.checked;
+                          }}
+                        />
+                        <span>Auto-compact enabled</span>
                       </label>
                     </div>
                     <div className="editor-actions-right">
