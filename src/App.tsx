@@ -9,7 +9,6 @@ import { TaskEditor, type TaskEditorRef } from "./components/TaskEditor";
 import { DiffViewer } from "./components/DiffViewer";
 import { WebviewPanel } from "./components/WebviewPanel";
 import { InspectorToggle } from "./components/InspectorToggle";
-import { ActivityFeed } from "./components/ActivityFeed";
 import {
   applyStreamLine,
   compactActivity,
@@ -23,6 +22,8 @@ import { ScreenshotToasts, type ScreenshotToast } from "./components/ScreenshotT
 import { StatsStrip } from "./components/StatsStrip";
 import { fetchPlanUsage, type PlanUsage } from "./lib/usage";
 import { getCurrentBranch } from "./lib/git-service";
+import { docToText } from "./lib/doc-text";
+import { ChatThread } from "./components/ChatThread";
 import { TaskHistory } from "./components/TaskHistory";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { AskUserModal } from "./components/AskUserModal";
@@ -105,8 +106,6 @@ function AppInner() {
   const [isResizing, setIsResizing] = useState(false);
   const resizingRef = useRef(false);
   const [chatCollapsed, setChatCollapsed] = useState(false);
-  const [streamHeight, setStreamHeight] = useState(200);
-  const streamResizingRef = useRef(false);
   const [autoAccept, setAutoAccept] = useState(false);
   const autoAcceptRef = useRef(false);
   const [contextTokens, setContextTokens] = useState<number | null>(null);
@@ -119,6 +118,13 @@ function AppInner() {
   const commitFlowRef = useRef(false);
   const currentTaskIdRef = useRef<string | null>(null);
   const taskActivityRef = useRef<ActivityItem[]>([]);
+  const addActivityNote = useCallback((text: string) => {
+    dispatch({ type: "ADD_ACTIVITY_NOTE", text });
+    taskActivityRef.current = [...taskActivityRef.current, noteItem(text, taskActivityRef.current)];
+  }, []);
+  // The chat shows tasks from here on; New Chat moves it forward.
+  const [chatStartedAt, setChatStartedAt] = useState(() => Date.now());
+  const [rightTab, setRightTab] = useState<"chat" | "history">("chat");
   const [screenshots, setScreenshots] = useState<ScreenshotToast[]>([]);
   const dismissScreenshot = useCallback((id: string) => {
     setScreenshots((prev) => prev.filter((toast) => toast.id !== id));
@@ -140,22 +146,10 @@ function AppInner() {
         const maxWidth = Math.floor(window.innerWidth * 0.9);
         setRightPanelWidth(Math.max(280, Math.min(maxWidth, newWidth)));
       }
-      if (streamResizingRef.current) {
-        const streamEl = document.querySelector(".streaming-output") as HTMLElement | null;
-        if (streamEl) {
-          const rect = streamEl.getBoundingClientRect();
-          const newHeight = e.clientY - rect.top;
-          setStreamHeight(Math.max(80, Math.min(600, newHeight)));
-        }
-      }
     }
     function handleMouseUp() {
       if (resizingRef.current) {
         resizingRef.current = false;
-        setIsResizing(false);
-      }
-      if (streamResizingRef.current) {
-        streamResizingRef.current = false;
         setIsResizing(false);
       }
     }
@@ -375,7 +369,7 @@ function AppInner() {
 
   // Core execution logic — runs a fully resolved prompt
   const executeTask = useCallback(
-    async (prompt: string) => {
+    async (prompt: string, displayText?: string) => {
       if (!state.repoPath) return;
 
       // If resuming from a user question, reuse the existing task ID
@@ -397,6 +391,7 @@ function AppInner() {
           entry: {
             id: taskId,
             taskText,
+            promptText: displayText ?? prompt,
             timestamp: Date.now(),
             status: "running",
             result: null,
@@ -406,7 +401,8 @@ function AppInner() {
       }
 
       dispatch({ type: "SET_PHASE", phase: "executing" });
-      dispatch({ type: "CLEAR_STREAM" });
+      // A resume (answer, approval) continues the same turn in the chat.
+      if (!isResume) dispatch({ type: "CLEAR_STREAM" });
 
       try {
         snapshotRef.current = await createSnapshot(state.repoPath);
@@ -437,9 +433,7 @@ function AppInner() {
           diffs.length === 0 &&
           sessionIdRef.current
         ) {
-          const note = "No changes detected, continuing with the implementation…";
-          dispatch({ type: "ADD_ACTIVITY_NOTE", text: note });
-          taskActivityRef.current = [...taskActivityRef.current, noteItem(note, taskActivityRef.current)];
+          addActivityNote("No changes detected, continuing with the implementation…");
 
           snapshotRef.current = await createSnapshot(state.repoPath);
           const retryResult = await executeClaudeCodeInteractive(
@@ -532,7 +526,7 @@ function AppInner() {
 
       if (state.phase !== "ready" && state.phase !== "reviewing") return;
 
-      await executeTask(prompt);
+      await executeTask(prompt, docToText(doc));
     },
     [state.repoPath, state.phase, buildPrompt, executeTask]
   );
@@ -545,6 +539,7 @@ function AppInner() {
       userQuestionRef.current = null;
       // Wrap the answer so Claude treats it as a response, not a new instruction
       const wrappedAnswer = `You asked: "${question}"\nMy answer: ${answer}\nPlease proceed based on this answer.`;
+      addActivityNote(`You answered: ${answer}`);
       executeTask(wrappedAnswer);
     },
     [executeTask, state.userQuestion]
@@ -560,7 +555,7 @@ function AppInner() {
       dispatch({
         type: "UPDATE_TASK_HISTORY",
         id: currentTaskIdRef.current,
-        updates: { status: "failed" },
+        updates: { status: "failed", activity: compactActivity(taskActivityRef.current) },
       });
       currentTaskIdRef.current = null;
     }
@@ -576,6 +571,7 @@ function AppInner() {
       const message = approved
         ? `I approved running the command: ${tool?.command ?? "the command"}. Please proceed and execute it.`
         : `I denied the command: ${tool?.command ?? "the command"}. Please find an alternative approach that does not use this command.`;
+      addActivityNote(`${approved ? "Approved" : "Denied"}: ${tool?.command ?? "the command"}`);
       executeTask(message);
     },
     [executeTask, state.toolApproval]
@@ -591,7 +587,7 @@ function AppInner() {
       dispatch({
         type: "UPDATE_TASK_HISTORY",
         id: currentTaskIdRef.current,
-        updates: { status: "failed" },
+        updates: { status: "failed", activity: compactActivity(taskActivityRef.current) },
       });
       currentTaskIdRef.current = null;
     }
@@ -710,7 +706,7 @@ Rules:
     if (state.phase === "ready" && queue.length > 0) {
       const [next, ...rest] = queue;
       setQueue(rest);
-      executeTask(next.prompt);
+      executeTask(next.prompt, docToText(next.doc));
     }
   }, [state.phase, queue, executeTask]);
 
@@ -840,13 +836,10 @@ Rules:
     };
   }, [state.repoPath, state.phase]);
 
-  // Auto-scroll streaming output
-  const streamRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (streamRef.current) {
-      streamRef.current.scrollTop = streamRef.current.scrollHeight;
-    }
-  }, [state.activity]);
+  const chatEntries = useMemo(
+    () => state.taskHistory.filter((entry) => entry.timestamp >= chatStartedAt).reverse(),
+    [state.taskHistory, chatStartedAt]
+  );
 
   return (
     <AppStateContext.Provider value={state}>
@@ -998,6 +991,140 @@ Rules:
             {/* Right: editor + streaming + history */}
             <div className="panel-right" style={{ width: chatCollapsed ? 0 : rightPanelWidth, display: chatCollapsed ? "none" : undefined }}>
 
+              <StatsStrip
+                contextTokens={contextTokens}
+                contextWindow={modelById(state.model).contextWindow}
+                planUsage={planUsage}
+                planError={planError}
+                branch={state.branch}
+                onBranchClick={() => dispatch({ type: "SET_SETTINGS_OPEN", open: true })}
+              />
+
+              <div className="chat-tabs">
+                <button
+                  className={`chat-tab${rightTab === "chat" ? " active" : ""}`}
+                  onClick={() => setRightTab("chat")}
+                >
+                  Chat
+                </button>
+                <button
+                  className={`chat-tab${rightTab === "history" ? " active" : ""}`}
+                  onClick={() => setRightTab("history")}
+                >
+                  History
+                </button>
+                <div className="task-history-actions">
+                    <button
+                      className="btn-ghost"
+                      onClick={() => {
+                        sessionIdRef.current = undefined;
+                        sentComponentsRef.current.clear();
+                        setContextTokens(null);
+                        setChatStartedAt(Date.now());
+                        setRightTab("chat");
+                        editorRef.current?.clear();
+                        editorRef.current?.focus();
+                      }}
+                      title="Start a new chat (keeps history)"
+                      disabled={state.phase === "executing"}
+                    >
+                      New Chat
+                    </button>
+                    {state.taskHistory.length > 0 && (
+                      <button
+                        className="btn-ghost"
+                        onClick={() => {
+                          sessionIdRef.current = undefined;
+                          sentComponentsRef.current.clear();
+                          setContextTokens(null);
+                          setChatStartedAt(Date.now());
+                          dispatch({ type: "CLEAR_TASK_HISTORY" });
+                        }}
+                        title="Clear conversation context and history"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+              </div>
+
+              <div className="chat-body">
+              {state.phase === "idle" && !state.repoPath && (
+                <div className="panel-empty-state">
+                  <p>Open settings to select a project folder and dev server.</p>
+                  <button
+                    className="btn-primary"
+                    onClick={() => dispatch({ type: "SET_SETTINGS_OPEN", open: true })}
+                  >
+                    Open Settings
+                  </button>
+                </div>
+              )}
+
+                {rightTab === "chat" ? (
+                  <ChatThread
+                    entries={chatEntries}
+                    liveTaskId={
+                      state.phase === "executing" || state.phase === "asking_user" || state.phase === "approving_tool"
+                        ? currentTaskIdRef.current
+                        : null
+                    }
+                    liveActivity={state.activity}
+                  />
+                ) : (
+                  <TaskHistory />
+                )}
+              </div>
+
+              {/* Message queue */}
+              {queue.length > 0 && (
+                <div className="message-queue">
+                  <div className="queue-header">
+                    <span className="section-label">Queue ({queue.length})</span>
+                    <button
+                      className="btn-ghost"
+                      onClick={() => setQueue([])}
+                    >
+                      Clear All
+                    </button>
+                  </div>
+                  <div className="queue-items">
+                    {queue.map((item, i) => (
+                      <div
+                        key={item.id}
+                        className="queue-item"
+                        onClick={() => setQueueModalItem(item)}
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
+                          // Remove from queue and put back in editor for editing
+                          setQueue((prev) => prev.filter((q) => q.id !== item.id));
+                          setQueueModalItem(null);
+                          editorRef.current?.setContent(item.doc);
+                          editorRef.current?.focus();
+                        }}
+                        title="Click to expand · Double-click to edit"
+                      >
+                        <span className="queue-item-number">{i + 1}</span>
+                        <span className="queue-item-text" title={item.promptText}>
+                          {item.promptText}
+                        </span>
+                        <button
+                          className="queue-item-cancel"
+                          onClick={() =>
+                            setQueue((prev) => prev.filter((q) => q.id !== item.id))
+                          }
+                          title="Remove from queue"
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M18 6L6 18M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {(state.phase === "ready" || state.phase === "executing" || state.phase === "reviewing" || state.phase === "asking_user" || state.phase === "approving_tool") && (
                 <div
                   className="editor-section"
@@ -1089,127 +1216,6 @@ Rules:
                 </div>
               )}
 
-              <StatsStrip
-                contextTokens={contextTokens}
-                contextWindow={modelById(state.model).contextWindow}
-                planUsage={planUsage}
-                planError={planError}
-                branch={state.branch}
-                onBranchClick={() => dispatch({ type: "SET_SETTINGS_OPEN", open: true })}
-              />
-
-              {/* Message queue */}
-              {queue.length > 0 && (
-                <div className="message-queue">
-                  <div className="queue-header">
-                    <span className="section-label">Queue ({queue.length})</span>
-                    <button
-                      className="btn-ghost"
-                      onClick={() => setQueue([])}
-                    >
-                      Clear All
-                    </button>
-                  </div>
-                  <div className="queue-items">
-                    {queue.map((item, i) => (
-                      <div
-                        key={item.id}
-                        className="queue-item"
-                        onClick={() => setQueueModalItem(item)}
-                        onDoubleClick={(e) => {
-                          e.stopPropagation();
-                          // Remove from queue and put back in editor for editing
-                          setQueue((prev) => prev.filter((q) => q.id !== item.id));
-                          setQueueModalItem(null);
-                          editorRef.current?.setContent(item.doc);
-                          editorRef.current?.focus();
-                        }}
-                        title="Click to expand · Double-click to edit"
-                      >
-                        <span className="queue-item-number">{i + 1}</span>
-                        <span className="queue-item-text" title={item.promptText}>
-                          {item.promptText}
-                        </span>
-                        <button
-                          className="queue-item-cancel"
-                          onClick={() =>
-                            setQueue((prev) => prev.filter((q) => q.id !== item.id))
-                          }
-                          title="Remove from queue"
-                        >
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M18 6L6 18M6 6l12 12" />
-                          </svg>
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Streaming output during execution */}
-              {(state.phase === "executing" || state.phase === "asking_user" || state.phase === "approving_tool") && state.activity.length > 0 && (
-                <div className="streaming-output" ref={streamRef} style={{ maxHeight: streamHeight, height: streamHeight }}>
-                  <ActivityFeed items={state.activity} finished={false} />
-                  <div
-                    className="stream-resize-handle"
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      streamResizingRef.current = true;
-                      setIsResizing(true);
-                    }}
-                  />
-                </div>
-              )}
-
-              {state.phase === "idle" && !state.repoPath && (
-                <div className="panel-empty-state">
-                  <p>Open settings to select a project folder and dev server.</p>
-                  <button
-                    className="btn-primary"
-                    onClick={() => dispatch({ type: "SET_SETTINGS_OPEN", open: true })}
-                  >
-                    Open Settings
-                  </button>
-                </div>
-              )}
-
-              <div className="task-history-section">
-                <div className="task-history-header">
-                  <span className="section-label">History</span>
-                  <div className="task-history-actions">
-                    <button
-                      className="btn-ghost"
-                      onClick={() => {
-                        sessionIdRef.current = undefined;
-                        sentComponentsRef.current.clear();
-                        setContextTokens(null);
-                        editorRef.current?.clear();
-                        editorRef.current?.focus();
-                      }}
-                      title="Start a new chat (keeps history)"
-                      disabled={state.phase === "executing"}
-                    >
-                      New Chat
-                    </button>
-                    {state.taskHistory.length > 0 && (
-                      <button
-                        className="btn-ghost"
-                        onClick={() => {
-                          sessionIdRef.current = undefined;
-                          sentComponentsRef.current.clear();
-                          setContextTokens(null);
-                          dispatch({ type: "CLEAR_TASK_HISTORY" });
-                        }}
-                        title="Clear conversation context and history"
-                      >
-                        Clear
-                      </button>
-                    )}
-                  </div>
-                </div>
-                <TaskHistory />
-              </div>
             </div>
           </div>
 

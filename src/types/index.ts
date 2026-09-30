@@ -94,6 +94,8 @@ export interface QueuedMessage {
 export interface TaskHistoryEntry {
   id: string;
   taskText: string;
+  /** What the user typed, shown in the chat. Missing on older entries. */
+  promptText?: string;
   timestamp: number;
   status: "running" | "success" | "failed";
   result: ClaudeExecutionResult | null;
