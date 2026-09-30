@@ -1142,94 +1142,97 @@ Rules:
                     onSubmit={handleSubmit}
                   />
                   <div className="editor-actions">
-                    <button
-                      className="btn-primary"
-                      onClick={() => {
-                        const json = editorRef.current?.getJSON();
-                        if (json) handleSubmit(json);
-                      }}
-                      disabled={state.claudeAvailable === false || !canRun}
-                      title={
-                        !state.repoPath
-                          ? "Pick a project folder in settings first"
-                          : state.phase === "scanning"
-                            ? "Still scanning the project"
-                            : undefined
-                      }
-                    >
-                      {!state.repoPath ? (
-                        "Pick a folder first"
-                      ) : state.phase === "scanning" ? (
-                        <>
-                          <span className="spinner-small" />
-                          Scanning…
-                        </>
-                      ) : state.phase === "executing" ? (
-                        <>
-                          <span className="spinner-small" />
-                          Queue
-                        </>
-                      ) : (
-                        "Run with Claude"
-                      )}
-                    </button>
-                    {state.phase === "executing" && (
+                    <div className="editor-toggles">
+                      <label className="auto-accept-toggle" title="Automatically accept all changes without review">
+                        <input
+                          type="checkbox"
+                          checked={autoAccept}
+                          onChange={(e) => {
+                            setAutoAccept(e.target.checked);
+                            autoAcceptRef.current = e.target.checked;
+                          }}
+                        />
+                        <span>Auto-accept</span>
+                      </label>
+                      <label className="auto-accept-toggle" title="Automatically approve tool commands without confirmation">
+                        <input
+                          type="checkbox"
+                          checked={autoApproveTools}
+                          onChange={(e) => {
+                            setAutoApproveTools(e.target.checked);
+                            autoApproveToolsRef.current = e.target.checked;
+                          }}
+                        />
+                        <span>Auto-approve tools</span>
+                      </label>
+                    </div>
+                    <div className="editor-actions-right">
                       <button
-                        className="btn-stop"
-                        onClick={() => {
-                          killClaudeProcess().catch(() => {});
-                          setQueue([]);
-                          if (currentTaskIdRef.current) {
-                            dispatch({
-                              type: "UPDATE_TASK_HISTORY",
-                              id: currentTaskIdRef.current,
-                              updates: { status: "failed", activity: compactActivity(taskActivityRef.current) },
-                            });
-                            currentTaskIdRef.current = null;
-                          }
-                          dispatch({ type: "SET_PHASE", phase: "ready" });
-                          dispatch({ type: "CLEAR_STREAM" });
-                        }}
-                        title="Stop current Claude process"
+                        className="toolbar-icon-btn"
+                        onClick={() =>
+                          dispatch({ type: "SET_SETTINGS_OPEN", open: true })
+                        }
+                        title="Settings"
                       >
-                        Stop
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+                          <circle cx="12" cy="12" r="3" />
+                        </svg>
                       </button>
-                    )}
-                    <label className="auto-accept-toggle" title="Automatically accept all changes without review">
-                      <input
-                        type="checkbox"
-                        checked={autoAccept}
-                        onChange={(e) => {
-                          setAutoAccept(e.target.checked);
-                          autoAcceptRef.current = e.target.checked;
+                      {state.phase === "executing" && (
+                        <button
+                          className="btn-stop"
+                          onClick={() => {
+                            killClaudeProcess().catch(() => {});
+                            setQueue([]);
+                            if (currentTaskIdRef.current) {
+                              dispatch({
+                                type: "UPDATE_TASK_HISTORY",
+                                id: currentTaskIdRef.current,
+                                updates: { status: "failed", activity: compactActivity(taskActivityRef.current) },
+                              });
+                              currentTaskIdRef.current = null;
+                            }
+                            dispatch({ type: "SET_PHASE", phase: "ready" });
+                            dispatch({ type: "CLEAR_STREAM" });
+                          }}
+                          title="Stop current Claude process"
+                        >
+                          Stop
+                        </button>
+                      )}
+                      <button
+                        className="btn-primary"
+                        onClick={() => {
+                          const json = editorRef.current?.getJSON();
+                          if (json) handleSubmit(json);
                         }}
-                      />
-                      <span>Auto-accept</span>
-                    </label>
-                    <label className="auto-accept-toggle" title="Automatically approve tool commands without confirmation">
-                      <input
-                        type="checkbox"
-                        checked={autoApproveTools}
-                        onChange={(e) => {
-                          setAutoApproveTools(e.target.checked);
-                          autoApproveToolsRef.current = e.target.checked;
-                        }}
-                      />
-                      <span>Auto-approve tools</span>
-                    </label>
-                    <button
-                      className="toolbar-icon-btn"
-                      style={{ marginLeft: "auto" }}
-                      onClick={() =>
-                        dispatch({ type: "SET_SETTINGS_OPEN", open: true })
-                      }
-                      title="Settings"
-                    >
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
-                        <circle cx="12" cy="12" r="3" />
-                      </svg>
-                    </button>
+                        disabled={state.claudeAvailable === false || !canRun}
+                        title={
+                          !state.repoPath
+                            ? "Pick a project folder in settings first"
+                            : state.phase === "scanning"
+                              ? "Still scanning the project"
+                              : undefined
+                        }
+                      >
+                        {!state.repoPath ? (
+                          "Pick a folder first"
+                        ) : state.phase === "scanning" ? (
+                          <>
+                            <span className="spinner-small" />
+                            Scanning…
+                          </>
+                        ) : state.phase === "executing" ? (
+                          <>
+                            <span className="spinner-small" />
+                            Queue
+                          </>
+                        ) : (
+                          "Send"
+                        )}
+                      </button>
+                    </div>
                   </div>
                 </div>
 
