@@ -75,10 +75,12 @@ export interface ElementContext {
 }
 
 export interface DetectedComponent {
-  componentName: string;
+  componentName: string | null;
   fileName: string | null;
   lineNumber: number | null;
   element?: ElementContext | null;
+  /** Set by the inspector when the click landed on nothing it could map. */
+  error?: string;
 }
 
 export interface QueuedMessage {

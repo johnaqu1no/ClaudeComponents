@@ -290,7 +290,9 @@
           componentName: null,
           fileName: null,
           lineNumber: null,
-          error: 'No component found on this element. Make sure you are running a React or Vue 3 app in development mode.',
+          error: document.getElementById('root') && !document.getElementById('root').children.length
+            ? 'The page has not rendered anything. Check that the dev server is running and the app loaded.'
+            : 'That element is not inside a React or Vue component. Try clicking inside the app content.',
         },
       }, '*');
     }

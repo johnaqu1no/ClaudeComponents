@@ -172,7 +172,9 @@ export function WebviewPanel() {
         } else {
           dispatch({
             type: "SET_ERROR",
-            error: "No React component found. Make sure you are running in development mode.",
+            error:
+              detected.error ??
+              "No React component found. Make sure you are running in development mode.",
           });
         }
       } else if (e.data?.type === "inspector-deactivated") {
@@ -233,7 +235,8 @@ export function WebviewPanel() {
         <iframe
           key={reloadKey}
           ref={iframeRef}
-          src={`http://localhost:${proxyPort}${lastLocationRef.current?.path || ""}`}
+          // The proxy binds 127.0.0.1 only, and "localhost" may resolve to ::1 first.
+          src={`http://127.0.0.1:${proxyPort}${lastLocationRef.current?.path || ""}`}
           className="webview-iframe"
           title="App Preview"
           sandbox="allow-scripts allow-same-origin allow-forms allow-popups"

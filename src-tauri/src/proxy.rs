@@ -39,8 +39,11 @@ pub async fn start_proxy(dev_server_url: String) -> Result<u16, String> {
         .build()
         .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 
+    let requested = dev_server_url.trim_end_matches('/').to_string();
+    let dev_server_url = pick_reachable_url(&client, &requested).await;
+
     let state = Arc::new(ProxyState {
-        dev_server_url: dev_server_url.trim_end_matches('/').to_string(),
+        dev_server_url,
         client,
     });
 
@@ -68,6 +71,47 @@ pub async fn start_proxy(dev_server_url: String) -> Result<u16, String> {
     *get_proxy_port().lock().await = Some(port);
 
     Ok(port)
+}
+
+/// Dev servers often listen on only one loopback family: Vite on newer Node binds
+/// "localhost" to ::1 alone, others to 127.0.0.1 alone. When the URL points at a
+/// loopback host, try the other spellings too and keep whichever answers.
+async fn pick_reachable_url(client: &reqwest::Client, url: &str) -> String {
+    let candidates = loopback_variants(url);
+    for candidate in &candidates {
+        let probe = client
+            .get(format!("{}/", candidate))
+            .timeout(std::time::Duration::from_secs(2))
+            .send()
+            .await;
+        if probe.is_ok() {
+            return candidate.clone();
+        }
+    }
+    url.to_string()
+}
+
+/// The URL itself first, then the same URL on the other loopback hosts.
+fn loopback_variants(url: &str) -> Vec<String> {
+    let mut out = vec![url.to_string()];
+    let Some(scheme_end) = url.find("://") else { return out };
+    let (scheme, rest) = url.split_at(scheme_end + 3);
+    let host_end = if rest.starts_with('[') {
+        rest.find(']').map(|i| i + 1)
+    } else {
+        rest.find(|c| c == ':' || c == '/')
+    }
+    .unwrap_or(rest.len());
+    let (host, tail) = rest.split_at(host_end);
+
+    const LOOPBACK: [&str; 3] = ["localhost", "127.0.0.1", "[::1]"];
+    if !LOOPBACK.contains(&host) {
+        return out;
+    }
+    for other in LOOPBACK.iter().filter(|h| **h != host) {
+        out.push(format!("{}{}{}", scheme, other, tail));
+    }
+    out
 }
 
 pub async fn stop_proxy() -> Result<(), String> {
@@ -121,6 +165,8 @@ const RefreshRuntime = {
   hasUnrecoveredErrors: () => false,
   getRefreshReg: () => noop,
   getRefreshSig: () => () => identity,
+  registerExportsForReactRefresh: noop,
+  validateRefreshBoundaryAndEnqueueUpdate: () => undefined,
   __hmr_import: (url) => import(url),
 };
 
@@ -141,6 +187,8 @@ export const performReactRefresh = noop;
 export const hasUnrecoveredErrors = () => false;
 export const getRefreshReg = () => noop;
 export const getRefreshSig = () => () => identity;
+export const registerExportsForReactRefresh = noop;
+export const validateRefreshBoundaryAndEnqueueUpdate = () => undefined;
 export function __hmr_import(url) { return import(url); }
 "#;
 
@@ -205,12 +253,7 @@ async fn proxy_handler(
 
     let resp = match proxy_req.send().await {
         Ok(r) => r,
-        Err(e) => {
-            return Response::builder()
-                .status(StatusCode::BAD_GATEWAY)
-                .body(Body::from(format!("Proxy error: {}", e)))
-                .unwrap();
-        }
+        Err(e) => return unreachable_page(&state.dev_server_url, &e.to_string()),
     };
 
     let status = StatusCode::from_u16(resp.status().as_u16()).unwrap_or(StatusCode::OK);
@@ -282,4 +325,59 @@ async fn proxy_handler(
         .header(header::ACCESS_CONTROL_ALLOW_HEADERS, "*");
 
     response.body(Body::from(final_body)).unwrap()
+}
+
+/// Shown in the preview when the dev server does not answer, so a dead or
+/// misconfigured server reads as that rather than as a blank frame.
+fn unreachable_page(dev_server_url: &str, error: &str) -> Response {
+    let escape = |text: &str| {
+        text.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+    };
+    let html = format!(
+        r#"<!doctype html><html><body style="margin:0;font-family:-apple-system,system-ui,sans-serif;background:#111;color:#ddd;display:flex;align-items:center;justify-content:center;height:100vh">
+<div style="max-width:520px;padding:24px">
+<h2 style="margin:0 0 12px;color:#fff">Can't reach the dev server</h2>
+<p style="margin:0 0 8px">Nothing answered at <code>{url}</code>.</p>
+<p style="margin:0 0 16px;color:#999">Check that it is running and that the URL and port in settings match it, then reload.</p>
+<pre style="white-space:pre-wrap;font-size:12px;color:#888;background:#1a1a1a;padding:12px;border-radius:6px">{error}</pre>
+</div></body></html>"#,
+        url = escape(dev_server_url),
+        error = escape(error),
+    );
+    Response::builder()
+        .status(StatusCode::BAD_GATEWAY)
+        .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
+        .body(Body::from(html))
+        .unwrap()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::loopback_variants;
+
+    #[test]
+    fn loopback_urls_try_every_loopback_host() {
+        assert_eq!(
+            loopback_variants("http://localhost:5173"),
+            vec![
+                "http://localhost:5173",
+                "http://127.0.0.1:5173",
+                "http://[::1]:5173",
+            ]
+        );
+        assert_eq!(
+            loopback_variants("http://[::1]:3000/app"),
+            vec![
+                "http://[::1]:3000/app",
+                "http://localhost:3000/app",
+                "http://127.0.0.1:3000/app",
+            ]
+        );
+    }
+
+    #[test]
+    fn other_hosts_are_left_alone() {
+        assert_eq!(loopback_variants("http://192.168.1.5:5173"), vec!["http://192.168.1.5:5173"]);
+        assert_eq!(loopback_variants("not a url"), vec!["not a url"]);
+    }
 }
