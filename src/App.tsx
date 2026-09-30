@@ -524,7 +524,7 @@ function AppInner() {
         return;
       }
 
-      if (state.phase !== "ready" && state.phase !== "reviewing") return;
+      if (state.phase !== "ready" && state.phase !== "reviewing" && state.phase !== "idle") return;
 
       await executeTask(prompt, docToText(doc));
     },
@@ -836,6 +836,9 @@ Rules:
     };
   }, [state.repoPath, state.phase]);
 
+  // A failed scan leaves the phase idle, but Claude can still work on the folder.
+  const canRun = !!state.repoPath && state.phase !== "scanning";
+
   const chatEntries = useMemo(
     () => state.taskHistory.filter((entry) => entry.timestamp >= chatStartedAt).reverse(),
     [state.taskHistory, chatStartedAt]
@@ -1125,8 +1128,9 @@ Rules:
                 </div>
               )}
 
-              {(state.phase === "ready" || state.phase === "executing" || state.phase === "reviewing" || state.phase === "asking_user" || state.phase === "approving_tool") && (
-                <div
+              {/* Always shown: hiding it while scanning (or after a failed scan) left
+                  the panel with no way to type. Run explains when it can't go. */}
+              <div
                   className="editor-section"
                   onMouseOver={handleEditorMouseOver}
                   onMouseOut={handleEditorMouseOut}
@@ -1144,9 +1148,23 @@ Rules:
                         const json = editorRef.current?.getJSON();
                         if (json) handleSubmit(json);
                       }}
-                      disabled={state.claudeAvailable === false}
+                      disabled={state.claudeAvailable === false || !canRun}
+                      title={
+                        !state.repoPath
+                          ? "Pick a project folder in settings first"
+                          : state.phase === "scanning"
+                            ? "Still scanning the project"
+                            : undefined
+                      }
                     >
-                      {state.phase === "executing" ? (
+                      {!state.repoPath ? (
+                        "Pick a folder first"
+                      ) : state.phase === "scanning" ? (
+                        <>
+                          <span className="spinner-small" />
+                          Scanning…
+                        </>
+                      ) : state.phase === "executing" ? (
                         <>
                           <span className="spinner-small" />
                           Queue
@@ -1214,7 +1232,6 @@ Rules:
                     </button>
                   </div>
                 </div>
-              )}
 
             </div>
           </div>
