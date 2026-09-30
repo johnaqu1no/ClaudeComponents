@@ -411,8 +411,16 @@ async fn kill_claude_process(
 ) -> Result<(), String> {
     let pid = state.pid.lock().unwrap().take();
     if let Some(pid) = pid {
+        #[cfg(unix)]
         unsafe {
             libc::kill(pid as i32, libc::SIGKILL);
+        }
+        // libc has no kill on Windows. /T takes Claude's child processes with it.
+        #[cfg(windows)]
+        {
+            let _ = std::process::Command::new("taskkill")
+                .args(["/PID", &pid.to_string(), "/T", "/F"])
+                .output();
         }
     }
     Ok(())
