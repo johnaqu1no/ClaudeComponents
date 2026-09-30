@@ -3,10 +3,10 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { useAppState, useAppDispatch } from "../stores/app-store";
 import { CLAUDE_MODELS } from "../lib/models";
 import { listBranches, switchBranch } from "../lib/git-service";
-import { setTypesafeKey, typesafeKeyStatus } from "../lib/agents";
+import { MAX_PARALLEL_AGENTS_LIMIT, setTypesafeKey, typesafeKeyStatus } from "../lib/agents";
 
 export function SettingsPanel() {
-  const { settingsOpen, repoPath, devServerUrl, model, recentProjects, branch, phase } = useAppState();
+  const { settingsOpen, repoPath, devServerUrl, model, recentProjects, branch, phase, maxParallelAgents } = useAppState();
   const dispatch = useAppDispatch();
 
   const [urlInput, setUrlInput] = useState(devServerUrl || "");
@@ -244,6 +244,23 @@ export function SettingsPanel() {
                 : "No key. Messages sent mid-task are queued."}
           </p>
           {keyError && <p className="settings-error">{keyError}</p>}
+          <div className="settings-row settings-row-top">
+            <label className="settings-inline-label" htmlFor="max-agents">
+              Max agents at once, besides the main one
+            </label>
+            <select
+              id="max-agents"
+              className="settings-input settings-input-narrow"
+              value={maxParallelAgents}
+              onChange={(e) => dispatch({ type: "SET_MAX_PARALLEL_AGENTS", count: Number(e.target.value) })}
+            >
+              {Array.from({ length: MAX_PARALLEL_AGENTS_LIMIT }, (_, i) => i + 1).map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
         <div className="settings-section">

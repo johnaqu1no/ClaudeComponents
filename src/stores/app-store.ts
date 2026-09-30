@@ -1,6 +1,7 @@
 import { createContext, useContext, type Dispatch } from "react";
 import type { AppState, AppAction, RecentProject } from "../types";
 import { DEFAULT_MODEL_ID } from "../lib/models";
+import { DEFAULT_MAX_PARALLEL_AGENTS, MAX_PARALLEL_AGENTS_LIMIT } from "../lib/agents";
 import { applyStreamLine, noteItem } from "../lib/activity";
 
 export const initialState: AppState = {
@@ -17,6 +18,7 @@ export const initialState: AppState = {
   model: DEFAULT_MODEL_ID,
   recentProjects: [],
   branch: null,
+  maxParallelAgents: DEFAULT_MAX_PARALLEL_AGENTS,
   selectedComponent: null,
   selectedElement: null,
   taskHistory: [],
@@ -29,6 +31,11 @@ export const initialState: AppState = {
 };
 
 const MAX_RECENT_PROJECTS = 10;
+
+function clampAgents(count: number): number {
+  if (!Number.isFinite(count)) return DEFAULT_MAX_PARALLEL_AGENTS;
+  return Math.min(MAX_PARALLEL_AGENTS_LIMIT, Math.max(1, Math.round(count)));
+}
 
 /** Moves the project to the front with its latest URL, keeping the list short. */
 function rememberProject(
@@ -105,6 +112,8 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, model: action.model };
     case "SET_BRANCH":
       return { ...state, branch: action.branch };
+    case "SET_MAX_PARALLEL_AGENTS":
+      return { ...state, maxParallelAgents: clampAgents(action.count) };
     case "SELECT_COMPONENT":
       return { ...state, selectedComponent: action.component, selectedElement: action.element ?? null };
     case "CLEAR_SELECTED_COMPONENT":
@@ -135,6 +144,7 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         ...state,
         devServerUrl: action.devServerUrl,
         model: action.model ?? state.model,
+        maxParallelAgents: action.maxParallelAgents === null ? state.maxParallelAgents : clampAgents(action.maxParallelAgents),
         // Settings saved before the history existed still seed it with their folder.
         recentProjects:
           action.recentProjects.length > 0
@@ -165,6 +175,7 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         claudeAvailable: state.claudeAvailable,
         devServerUrl: state.devServerUrl,
         model: state.model,
+        maxParallelAgents: state.maxParallelAgents,
         recentProjects: state.recentProjects,
         proxyPort: state.proxyPort,
       };

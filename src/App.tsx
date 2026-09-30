@@ -35,7 +35,6 @@ import {
   COMMIT_AGENT,
   MAIN_AGENT,
   MAIN_TOOLS,
-  MAX_PARALLEL_AGENTS,
   ROUTE_MIN_CONFIDENCE,
   filesEditedBy,
   killAgent,
@@ -52,6 +51,10 @@ import { listen } from "@tauri-apps/api/event";
 import type { JSONContent } from "@tiptap/react";
 import type { ComponentInfo, FileSnapshot, QueuedMessage, UserQuestion, ToolApproval } from "./types";
 import "./App.css";
+
+function agentsBusyText(limit: number): string {
+  return `${limit} ${limit === 1 ? "agent is" : "agents are"} already running (change the limit in Settings)`;
+}
 
 interface ParallelAgent {
   id: string;
@@ -286,13 +289,20 @@ function AppInner() {
       dispatch({ type: "SET_CLAUDE_AVAILABLE", available });
     });
     loadSettings().then((settings) => {
-      if (settings.repoPath || settings.devServerUrl || settings.model || settings.recentProjects?.length) {
+      if (
+        settings.repoPath ||
+        settings.devServerUrl ||
+        settings.model ||
+        settings.recentProjects?.length ||
+        settings.maxParallelAgents
+      ) {
         dispatch({
           type: "LOAD_SETTINGS",
           repoPath: settings.repoPath,
           devServerUrl: settings.devServerUrl,
           model: settings.model ?? null,
           recentProjects: settings.recentProjects ?? [],
+          maxParallelAgents: settings.maxParallelAgents ?? null,
         });
       }
       if (settings.autoCompact === false) {
@@ -313,14 +323,17 @@ function AppInner() {
   const prevModelRef = useRef(state.model);
   const prevRecentRef = useRef(state.recentProjects);
   const prevAutoCompactRef = useRef(autoCompact);
+  const prevMaxAgentsRef = useRef(state.maxParallelAgents);
   useEffect(() => {
     if (
       state.repoPath !== prevRepoRef.current ||
       state.devServerUrl !== prevUrlRef.current ||
       state.model !== prevModelRef.current ||
       state.recentProjects !== prevRecentRef.current ||
-      autoCompact !== prevAutoCompactRef.current
+      autoCompact !== prevAutoCompactRef.current ||
+      state.maxParallelAgents !== prevMaxAgentsRef.current
     ) {
+      prevMaxAgentsRef.current = state.maxParallelAgents;
       prevAutoCompactRef.current = autoCompact;
       prevRepoRef.current = state.repoPath;
       prevUrlRef.current = state.devServerUrl;
@@ -332,9 +345,10 @@ function AppInner() {
         model: state.model,
         recentProjects: state.recentProjects,
         autoCompact,
+        maxParallelAgents: state.maxParallelAgents,
       });
     }
-  }, [state.repoPath, state.devServerUrl, state.model, state.recentProjects, autoCompact]);
+  }, [state.repoPath, state.devServerUrl, state.model, state.recentProjects, autoCompact, state.maxParallelAgents]);
 
   // Persist task history to disk
   const historyInitRef = useRef(true);
@@ -667,7 +681,7 @@ function AppInner() {
         let routeReason = "Waiting for the running task";
         const running = state.taskHistory.find((t) => t.id === currentTaskIdRef.current);
         const canRoute =
-          typesafeReadyRef.current && !!running && !commitFlowRef.current && parallelCountRef.current < MAX_PARALLEL_AGENTS;
+          typesafeReadyRef.current && !!running && !commitFlowRef.current && parallelCountRef.current < state.maxParallelAgents;
         if (canRoute) {
           try {
             const repo = state.repoPath;
@@ -692,8 +706,8 @@ function AppInner() {
           } catch (err) {
             routeReason = `Couldn't route it (${err}), so it waits its turn`;
           }
-        } else if (typesafeReadyRef.current && parallelCountRef.current >= MAX_PARALLEL_AGENTS) {
-          routeReason = `${MAX_PARALLEL_AGENTS} agents are already running`;
+        } else if (typesafeReadyRef.current && parallelCountRef.current >= state.maxParallelAgents) {
+          routeReason = agentsBusyText(state.maxParallelAgents);
         }
         const promptText = prompt.length > 80 ? prompt.slice(0, 80) + "..." : prompt;
         setQueue((prev) => [
@@ -715,7 +729,7 @@ function AppInner() {
 
       await executeTask(prompt, docToText(doc));
     },
-    [state.repoPath, state.phase, state.taskHistory, buildPrompt, executeTask, startParallelAgent]
+    [state.repoPath, state.phase, state.taskHistory, state.maxParallelAgents, buildPrompt, executeTask, startParallelAgent]
   );
 
   // Handle user answering the AskUserQuestion modal
@@ -1353,15 +1367,15 @@ Rules:
                         </span>
                         <button
                           className="queue-item-run"
-                          disabled={parallelAgents.length >= MAX_PARALLEL_AGENTS}
+                          disabled={parallelAgents.length >= state.maxParallelAgents}
                           onClick={(e) => {
                             e.stopPropagation();
                             setQueue((prev) => prev.filter((q) => q.id !== item.id));
                             startParallelAgent(item.prompt, item.displayText ?? item.promptText, "Started as a new agent from the queue.");
                           }}
                           title={
-                            parallelAgents.length >= MAX_PARALLEL_AGENTS
-                              ? `${MAX_PARALLEL_AGENTS} agents are already running`
+                            parallelAgents.length >= state.maxParallelAgents
+                              ? agentsBusyText(state.maxParallelAgents)
                               : "Run now on a new agent, alongside the current task"
                           }
                         >

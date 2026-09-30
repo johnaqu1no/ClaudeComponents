@@ -6,8 +6,9 @@ import type { ClaudeExecutionResult } from "../types";
 export const MAIN_AGENT = "main";
 /** Commit runs in a fresh session of its own, so it never touches the chat's context. */
 export const COMMIT_AGENT = "commit";
-/** Parallel agents at once, on top of the main one. */
-export const MAX_PARALLEL_AGENTS = 3;
+/** Parallel agents at once, on top of the main one, unless changed in Settings. */
+export const DEFAULT_MAX_PARALLEL_AGENTS = 3;
+export const MAX_PARALLEL_AGENTS_LIMIT = 8;
 export const MAIN_TOOLS = "Read,Edit,Write,Bash,AskUserQuestion";
 
 export interface AgentTurn {

@@ -137,6 +137,8 @@ export interface AppState {
   recentProjects: RecentProject[];
   /** Checked-out git branch of the open folder, when it is a repository. */
   branch: string | null;
+  /** How many agents may run alongside the main one. */
+  maxParallelAgents: number;
   selectedComponent: ComponentInfo | null;
   selectedElement: ElementContext | null;
   taskHistory: TaskHistoryEntry[];
@@ -166,6 +168,7 @@ export type AppAction =
   | { type: "SET_DEV_SERVER_URL"; url: string | null }
   | { type: "SET_MODEL"; model: string }
   | { type: "SET_BRANCH"; branch: string | null }
+  | { type: "SET_MAX_PARALLEL_AGENTS"; count: number }
   | { type: "OPEN_PROJECT"; repoPath: string; devServerUrl: string | null }
   | { type: "SELECT_COMPONENT"; component: ComponentInfo | null; element?: ElementContext | null }
   | { type: "CLEAR_SELECTED_COMPONENT" }
@@ -183,6 +186,7 @@ export type AppAction =
       devServerUrl: string | null;
       model: string | null;
       recentProjects: RecentProject[];
+      maxParallelAgents: number | null;
     }
   | { type: "SET_USER_QUESTION"; question: UserQuestion }
   | { type: "CLEAR_USER_QUESTION" }

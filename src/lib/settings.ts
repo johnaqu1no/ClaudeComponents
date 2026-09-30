@@ -10,6 +10,8 @@ export interface PersistedSettings {
   recentProjects?: RecentProject[];
   /** Let Claude Code compact on its own. Missing means on, its default. */
   autoCompact?: boolean;
+  /** Agents allowed alongside the main one. Missing means the default. */
+  maxParallelAgents?: number;
 }
 
 const SETTINGS_FILE = "settings.json";
