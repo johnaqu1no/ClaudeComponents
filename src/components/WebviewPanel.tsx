@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useAppState, useAppDispatch } from "../stores/app-store";
 import { matchComponent } from "../lib/component-matcher";
@@ -13,6 +13,15 @@ export function WebviewPanel() {
   const [reloadKey, setReloadKey] = useState(0);
   const lastLocationRef = useRef<{ path: string; scrollX: number; scrollY: number } | null>(null);
   const pendingReloadRef = useRef(false);
+
+  // Worked out only when a reload is asked for. The page reports its own
+  // navigations into lastLocationRef, so reading the ref on every render would
+  // point src at the current page and reload it on any unrelated re-render,
+  // such as toggling the inspector.
+  const iframeSrc = useMemo(
+    () => (proxyPort ? `http://127.0.0.1:${proxyPort}${lastLocationRef.current?.path || "/"}` : null),
+    [proxyPort, reloadKey]
+  );
 
   const reloadIframe = useCallback(() => {
     if (!iframeRef.current) return;
@@ -236,7 +245,7 @@ export function WebviewPanel() {
           key={reloadKey}
           ref={iframeRef}
           // The proxy binds 127.0.0.1 only, and "localhost" may resolve to ::1 first.
-          src={`http://127.0.0.1:${proxyPort}${lastLocationRef.current?.path || ""}`}
+          src={iframeSrc ?? undefined}
           className="webview-iframe"
           title="App Preview"
           sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
