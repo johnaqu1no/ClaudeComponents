@@ -145,6 +145,7 @@ async fn execute_claude(
     app: tauri::AppHandle,
     prompt: String,
     cwd: String,
+    model: Option<String>,
     session_id: Option<String>,
 ) -> Result<serde_json::Value, String> {
     use std::process::Stdio;
@@ -162,6 +163,11 @@ async fn execute_claude(
         "--allowedTools".to_string(),
         "Read,Edit,Write".to_string(),
     ];
+
+    if let Some(m) = model.as_deref().filter(|m| !m.is_empty()) {
+        args.push("--model".to_string());
+        args.push(m.to_string());
+    }
 
     if let Some(sid) = &session_id {
         args.push("--resume".to_string());
@@ -266,6 +272,7 @@ async fn execute_claude_interactive(
     state: tauri::State<'_, ClaudeProcessState>,
     prompt: String,
     cwd: String,
+    model: Option<String>,
     session_id: Option<String>,
     allowed_tools: Option<String>,
 ) -> Result<serde_json::Value, String> {
@@ -285,6 +292,11 @@ async fn execute_claude_interactive(
         "--allowedTools".to_string(),
         tools,
     ];
+
+    if let Some(m) = model.as_deref().filter(|m| !m.is_empty()) {
+        args.push("--model".to_string());
+        args.push(m.to_string());
+    }
 
     if let Some(sid) = &session_id {
         args.push("--resume".to_string());

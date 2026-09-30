@@ -5,6 +5,8 @@ import type { TaskHistoryEntry } from "../types";
 export interface PersistedSettings {
   repoPath: string | null;
   devServerUrl: string | null;
+  /** Missing in settings saved before model selection existed. */
+  model?: string | null;
 }
 
 const SETTINGS_FILE = "settings.json";

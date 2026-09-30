@@ -12,6 +12,7 @@ export async function checkClaudeAvailable(): Promise<boolean> {
 export async function executeClaudeCode(
   prompt: string,
   cwd: string,
+  model: string,
   sessionId?: string
 ): Promise<ClaudeExecutionResult> {
   const result = await invoke<{
@@ -25,6 +26,7 @@ export async function executeClaudeCode(
   }>("execute_claude", {
     prompt,
     cwd,
+    model,
     sessionId: sessionId ?? null,
   });
 
@@ -42,6 +44,7 @@ export async function executeClaudeCode(
 export async function executeClaudeCodeInteractive(
   prompt: string,
   cwd: string,
+  model: string,
   sessionId?: string,
   allowedTools?: string
 ): Promise<ClaudeExecutionResult> {
@@ -56,6 +59,7 @@ export async function executeClaudeCodeInteractive(
   }>("execute_claude_interactive", {
     prompt,
     cwd,
+    model,
     sessionId: sessionId ?? null,
     allowedTools: allowedTools ?? null,
   });

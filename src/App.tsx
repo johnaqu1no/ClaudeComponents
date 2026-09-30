@@ -23,12 +23,14 @@ import {
 import { createSnapshot, computeDiffs } from "./lib/diff-engine";
 import { gitHasChanges, getUnpushedCount, gitPush } from "./lib/git-service";
 import { loadSettings, saveSettings, loadHistory, saveHistory } from "./lib/settings";
+import { modelById } from "./lib/models";
 import { listen } from "@tauri-apps/api/event";
 import type { JSONContent } from "@tiptap/react";
 import type { ComponentInfo, FileSnapshot, QueuedMessage, UserQuestion, ToolApproval } from "./types";
 import "./App.css";
 
 function formatTokens(n: number): string {
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1).replace(/\.0$/, "") + "M";
   if (n >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, "") + "K";
   return String(n);
 }
@@ -231,11 +233,12 @@ function AppInner() {
       dispatch({ type: "SET_CLAUDE_AVAILABLE", available });
     });
     loadSettings().then((settings) => {
-      if (settings.repoPath || settings.devServerUrl) {
+      if (settings.repoPath || settings.devServerUrl || settings.model) {
         dispatch({
           type: "LOAD_SETTINGS",
           repoPath: settings.repoPath,
           devServerUrl: settings.devServerUrl,
+          model: settings.model ?? null,
         });
       }
     });
@@ -246,22 +249,26 @@ function AppInner() {
     });
   }, []);
 
-  // Persist settings when repoPath or devServerUrl change
+  // Persist settings when repoPath, devServerUrl or model change
   const prevRepoRef = useRef(state.repoPath);
   const prevUrlRef = useRef(state.devServerUrl);
+  const prevModelRef = useRef(state.model);
   useEffect(() => {
     if (
       state.repoPath !== prevRepoRef.current ||
-      state.devServerUrl !== prevUrlRef.current
+      state.devServerUrl !== prevUrlRef.current ||
+      state.model !== prevModelRef.current
     ) {
       prevRepoRef.current = state.repoPath;
       prevUrlRef.current = state.devServerUrl;
+      prevModelRef.current = state.model;
       saveSettings({
         repoPath: state.repoPath,
         devServerUrl: state.devServerUrl,
+        model: state.model,
       });
     }
-  }, [state.repoPath, state.devServerUrl]);
+  }, [state.repoPath, state.devServerUrl, state.model]);
 
   // Persist task history to disk
   const historyInitRef = useRef(true);
@@ -393,7 +400,7 @@ function AppInner() {
 
       try {
         snapshotRef.current = await createSnapshot(state.repoPath);
-        let result = await executeClaudeCodeInteractive(prompt, state.repoPath, sessionIdRef.current, "Read,Edit,Write,Bash,AskUserQuestion");
+        let result = await executeClaudeCodeInteractive(prompt, state.repoPath, state.model, sessionIdRef.current, "Read,Edit,Write,Bash,AskUserQuestion");
 
         // If a user question or tool approval was detected, the process was killed.
         // Keep the task "running" and return early — the modal handles resumption.
@@ -433,6 +440,7 @@ function AppInner() {
           const retryResult = await executeClaudeCodeInteractive(
             "Do not plan or ask questions. Implement the changes now.",
             state.repoPath,
+            state.model,
             sessionIdRef.current,
             "Read,Edit,Write,Bash,AskUserQuestion"
           );
@@ -491,7 +499,7 @@ function AppInner() {
         });
       }
     },
-    [state.repoPath, state.taskHistory]
+    [state.repoPath, state.taskHistory, state.model]
   );
 
   const handleSubmit = useCallback(
@@ -654,6 +662,7 @@ Rules:
       const result = await executeClaudeCodeInteractive(
         commitPrompt,
         state.repoPath,
+        state.model,
         undefined, // fresh session, no resume
         "Read,Bash"
       );
@@ -677,7 +686,7 @@ Rules:
     } finally {
       commitFlowRef.current = false;
     }
-  }, [state.repoPath]);
+  }, [state.repoPath, state.model]);
 
   // Handle sync (push)
   const handleSync = useCallback(async () => {
@@ -1043,12 +1052,13 @@ Rules:
 
               {/* Context usage bar */}
               {contextTokens !== null && (() => {
-                const usagePct = (contextTokens / 200000) * 100;
+                const contextWindow = modelById(state.model).contextWindow;
+                const usagePct = (contextTokens / contextWindow) * 100;
                 return (
                   <div className="context-usage">
                     <div className="context-usage-label">
                       <span>Context</span>
-                      <span>{formatTokens(contextTokens)} / 200K</span>
+                      <span>{formatTokens(contextTokens)} / {formatTokens(contextWindow)}</span>
                     </div>
                     <div className="context-usage-bar">
                       <div

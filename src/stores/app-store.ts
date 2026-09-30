@@ -1,5 +1,6 @@
 import { createContext, useContext, type Dispatch } from "react";
 import type { AppState, AppAction } from "../types";
+import { DEFAULT_MODEL_ID } from "../lib/models";
 
 export const initialState: AppState = {
   phase: "idle",
@@ -12,6 +13,7 @@ export const initialState: AppState = {
   inspectorActive: false,
   proxyPort: null,
   devServerUrl: null,
+  model: DEFAULT_MODEL_ID,
   selectedComponent: null,
   selectedElement: null,
   taskHistory: [],
@@ -56,6 +58,8 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, proxyPort: action.port };
     case "SET_DEV_SERVER_URL":
       return { ...state, devServerUrl: action.url };
+    case "SET_MODEL":
+      return { ...state, model: action.model };
     case "SELECT_COMPONENT":
       return { ...state, selectedComponent: action.component, selectedElement: action.element ?? null };
     case "CLEAR_SELECTED_COMPONENT":
@@ -83,6 +87,7 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       const next: AppState = {
         ...state,
         devServerUrl: action.devServerUrl,
+        model: action.model ?? state.model,
       };
       if (action.repoPath) {
         next.repoPath = action.repoPath;
@@ -107,6 +112,7 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         ...initialState,
         claudeAvailable: state.claudeAvailable,
         devServerUrl: state.devServerUrl,
+        model: state.model,
         proxyPort: state.proxyPort,
       };
     default:

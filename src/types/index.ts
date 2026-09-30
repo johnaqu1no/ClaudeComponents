@@ -114,6 +114,8 @@ export interface AppState {
   inspectorActive: boolean;
   proxyPort: number | null;
   devServerUrl: string | null;
+  /** Claude model id passed to the CLI. */
+  model: string;
   selectedComponent: ComponentInfo | null;
   selectedElement: ElementContext | null;
   taskHistory: TaskHistoryEntry[];
@@ -139,6 +141,7 @@ export type AppAction =
   | { type: "SET_INSPECTOR_ACTIVE"; active: boolean }
   | { type: "SET_PROXY_PORT"; port: number | null }
   | { type: "SET_DEV_SERVER_URL"; url: string | null }
+  | { type: "SET_MODEL"; model: string }
   | { type: "SELECT_COMPONENT"; component: ComponentInfo | null; element?: ElementContext | null }
   | { type: "CLEAR_SELECTED_COMPONENT" }
   | { type: "ADD_TASK_HISTORY"; entry: TaskHistoryEntry }
@@ -148,7 +151,7 @@ export type AppAction =
   | { type: "APPEND_STREAM_LINE"; line: string }
   | { type: "CLEAR_STREAM" }
   | { type: "SET_SETTINGS_OPEN"; open: boolean }
-  | { type: "LOAD_SETTINGS"; repoPath: string | null; devServerUrl: string | null }
+  | { type: "LOAD_SETTINGS"; repoPath: string | null; devServerUrl: string | null; model: string | null }
   | { type: "SET_USER_QUESTION"; question: UserQuestion }
   | { type: "CLEAR_USER_QUESTION" }
   | { type: "SET_TOOL_APPROVAL"; approval: ToolApproval }
