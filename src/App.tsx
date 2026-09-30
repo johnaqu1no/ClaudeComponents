@@ -9,6 +9,16 @@ import { TaskEditor, type TaskEditorRef } from "./components/TaskEditor";
 import { DiffViewer } from "./components/DiffViewer";
 import { WebviewPanel } from "./components/WebviewPanel";
 import { InspectorToggle } from "./components/InspectorToggle";
+import { ActivityFeed } from "./components/ActivityFeed";
+import {
+  applyStreamLine,
+  compactActivity,
+  imagesInStreamLine,
+  noteItem,
+  toolLabel,
+  type ActivityItem,
+} from "./lib/activity";
+import { ScreenshotToasts, type ScreenshotToast } from "./components/ScreenshotToasts";
 import { TaskHistory } from "./components/TaskHistory";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { AskUserModal } from "./components/AskUserModal";
@@ -33,33 +43,6 @@ function formatTokens(n: number): string {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1).replace(/\.0$/, "") + "M";
   if (n >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, "") + "K";
   return String(n);
-}
-
-function parseStreamLine(line: string): string | null {
-  try {
-    const data = JSON.parse(line);
-    if (data.type === "assistant" && data.message?.content) {
-      for (const block of data.message.content) {
-        if (block.type === "text" && block.text) return block.text;
-        if (block.type === "tool_use") {
-          const input = block.input;
-          if (block.name === "Read" && input?.file_path)
-            return `Reading ${input.file_path}...`;
-          if (block.name === "Edit" && input?.file_path)
-            return `Editing ${input.file_path}...`;
-          if (block.name === "Write" && input?.file_path)
-            return `Writing ${input.file_path}...`;
-          return `Using ${block.name}...`;
-        }
-      }
-    }
-    if (data.type === "result" && data.result) {
-      return data.result.length > 200 ? data.result.slice(0, 200) + "..." : data.result;
-    }
-  } catch {
-    // not JSON, skip
-  }
-  return null;
 }
 
 function detectUserQuestion(line: string): UserQuestion | null {
@@ -135,7 +118,11 @@ function AppInner() {
   const autoApproveToolsRef = useRef(false);
   const commitFlowRef = useRef(false);
   const currentTaskIdRef = useRef<string | null>(null);
-  const taskChatLinesRef = useRef<string[]>([]);
+  const taskActivityRef = useRef<ActivityItem[]>([]);
+  const [screenshots, setScreenshots] = useState<ScreenshotToast[]>([]);
+  const dismissScreenshot = useCallback((id: string) => {
+    setScreenshots((prev) => prev.filter((toast) => toast.id !== id));
+  }, []);
 
   // Message queue
   const [queue, setQueue] = useState<QueuedMessage[]>([]);
@@ -197,10 +184,24 @@ function AppInner() {
   // Listen for Claude streaming events
   useEffect(() => {
     const unlistenPromise = listen<string>("claude-stream", (event) => {
-      const parsed = parseStreamLine(event.payload);
-      if (parsed) {
-        dispatch({ type: "APPEND_STREAM_LINE", line: parsed });
-        taskChatLinesRef.current.push(parsed);
+      dispatch({ type: "APPLY_STREAM_EVENT", line: event.payload });
+      taskActivityRef.current = applyStreamLine(taskActivityRef.current, event.payload);
+
+      // Any image a tool hands back is a screenshot Claude took or looked at.
+      const images = imagesInStreamLine(event.payload);
+      if (images.length > 0) {
+        const added = images.map(({ toolUseId, src }, index) => {
+          const tool = taskActivityRef.current.find(
+            (item): item is Extract<ActivityItem, { kind: "tool" }> => item.kind === "tool" && item.id === toolUseId
+          );
+          const label = tool ? toolLabel(tool.name, tool.input) : null;
+          return {
+            id: `${toolUseId}:${index}:${Date.now()}`,
+            src,
+            caption: label ? `${label.done}${label.detail ? ` ${label.detail}` : ""}` : "Screenshot",
+          };
+        });
+        setScreenshots((prev) => [...prev, ...added]);
       }
 
       // Detect AskUserQuestion tool_use in stream
@@ -379,8 +380,8 @@ function AppInner() {
       currentTaskIdRef.current = taskId;
       userQuestionRef.current = null;
       toolApprovalRef.current = null;
-      // Reset chat lines only for fresh tasks, not resumes
-      if (!isResume) taskChatLinesRef.current = [];
+      // Reset the activity only for fresh tasks, not resumes
+      if (!isResume) taskActivityRef.current = [];
 
       const taskText =
         prompt.length > 80 ? prompt.slice(0, 80) + "..." : prompt;
@@ -436,10 +437,9 @@ function AppInner() {
           diffs.length === 0 &&
           sessionIdRef.current
         ) {
-          dispatch({
-            type: "APPEND_STREAM_LINE",
-            line: "No changes detected — continuing with implementation...",
-          });
+          const note = "No changes detected, continuing with the implementation…";
+          dispatch({ type: "ADD_ACTIVITY_NOTE", text: note });
+          taskActivityRef.current = [...taskActivityRef.current, noteItem(note, taskActivityRef.current)];
 
           snapshotRef.current = await createSnapshot(state.repoPath);
           const retryResult = await executeClaudeCodeInteractive(
@@ -484,7 +484,7 @@ function AppInner() {
         dispatch({
           type: "UPDATE_TASK_HISTORY",
           id: taskId,
-          updates: { status: "success", result, diffs, chatLines: [...taskChatLinesRef.current] },
+          updates: { status: "success", result, diffs, activity: compactActivity(taskActivityRef.current) },
         });
       } catch (err) {
         // Don't treat killed-for-question/approval as a real error
@@ -813,11 +813,12 @@ Rules:
     if (streamRef.current) {
       streamRef.current.scrollTop = streamRef.current.scrollHeight;
     }
-  }, [state.streamingLines]);
+  }, [state.activity]);
 
   return (
     <AppStateContext.Provider value={state}>
       <AppDispatchContext.Provider value={dispatch}>
+        <ScreenshotToasts toasts={screenshots} onDismiss={dismissScreenshot} />
         <div className="app">
           {/* Toolbar */}
           <header className="app-toolbar">
@@ -1004,7 +1005,7 @@ Rules:
                             dispatch({
                               type: "UPDATE_TASK_HISTORY",
                               id: currentTaskIdRef.current,
-                              updates: { status: "failed", chatLines: [...taskChatLinesRef.current] },
+                              updates: { status: "failed", activity: compactActivity(taskActivityRef.current) },
                             });
                             currentTaskIdRef.current = null;
                           }
@@ -1125,11 +1126,9 @@ Rules:
               )}
 
               {/* Streaming output during execution */}
-              {(state.phase === "executing" || state.phase === "asking_user" || state.phase === "approving_tool") && state.streamingLines.length > 0 && (
+              {(state.phase === "executing" || state.phase === "asking_user" || state.phase === "approving_tool") && state.activity.length > 0 && (
                 <div className="streaming-output" ref={streamRef} style={{ maxHeight: streamHeight, height: streamHeight }}>
-                  {state.streamingLines.map((line, i) => (
-                    <div key={i} className="stream-line">{line}</div>
-                  ))}
+                  <ActivityFeed items={state.activity} finished={false} />
                   <div
                     className="stream-resize-handle"
                     onMouseDown={(e) => {

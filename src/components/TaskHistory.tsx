@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useAppState } from "../stores/app-store";
 import type { TaskHistoryEntry } from "../types";
+import { ActivityFeed } from "./ActivityFeed";
 
 function formatTime(timestamp: number): string {
   return new Date(timestamp).toLocaleTimeString([], {
@@ -47,7 +48,9 @@ function ChatModal({ entry, onClose }: { entry: TaskHistoryEntry; onClose: () =>
           <button className="modal-close" onClick={onClose}>✕</button>
         </div>
         <div className="task-chat-body" ref={scrollRef}>
-          {lines.length === 0 ? (
+          {entry.activity?.length ? (
+            <ActivityFeed items={entry.activity} finished />
+          ) : lines.length === 0 ? (
             <div className="task-chat-empty">No output recorded.</div>
           ) : (
             lines.map((line, i) => (

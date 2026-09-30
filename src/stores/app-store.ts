@@ -1,6 +1,7 @@
 import { createContext, useContext, type Dispatch } from "react";
 import type { AppState, AppAction, RecentProject } from "../types";
 import { DEFAULT_MODEL_ID } from "../lib/models";
+import { applyStreamLine, noteItem } from "../lib/activity";
 
 export const initialState: AppState = {
   phase: "idle",
@@ -18,7 +19,7 @@ export const initialState: AppState = {
   selectedComponent: null,
   selectedElement: null,
   taskHistory: [],
-  streamingLines: [],
+  activity: [],
   settingsOpen: false,
   userQuestion: null,
   toolApproval: null,
@@ -113,10 +114,12 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, taskHistory: [] };
     case "LOAD_HISTORY":
       return { ...state, taskHistory: action.entries };
-    case "APPEND_STREAM_LINE":
-      return { ...state, streamingLines: [...state.streamingLines, action.line] };
+    case "APPLY_STREAM_EVENT":
+      return { ...state, activity: applyStreamLine(state.activity, action.line) };
+    case "ADD_ACTIVITY_NOTE":
+      return { ...state, activity: [...state.activity, noteItem(action.text, state.activity)] };
     case "CLEAR_STREAM":
-      return { ...state, streamingLines: [] };
+      return { ...state, activity: [] };
     case "SET_SETTINGS_OPEN":
       return { ...state, settingsOpen: action.open };
     case "LOAD_SETTINGS": {

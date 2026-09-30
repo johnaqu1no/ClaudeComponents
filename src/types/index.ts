@@ -100,7 +100,9 @@ export interface TaskHistoryEntry {
   diffs: FileDiff[];
   durationMs?: number;
   diffCount?: number;
+  /** Plain lines saved before the activity timeline existed. */
   chatLines?: string[];
+  activity?: import("../lib/activity").ActivityItem[];
 }
 
 /** A folder opened before, and the dev server it was previewed on. */
@@ -128,7 +130,8 @@ export interface AppState {
   selectedComponent: ComponentInfo | null;
   selectedElement: ElementContext | null;
   taskHistory: TaskHistoryEntry[];
-  streamingLines: string[];
+  /** What Claude is doing in the current run. */
+  activity: import("../lib/activity").ActivityItem[];
   settingsOpen: boolean;
   userQuestion: UserQuestion | null;
   toolApproval: ToolApproval | null;
@@ -158,7 +161,8 @@ export type AppAction =
   | { type: "UPDATE_TASK_HISTORY"; id: string; updates: Partial<TaskHistoryEntry> }
   | { type: "CLEAR_TASK_HISTORY" }
   | { type: "LOAD_HISTORY"; entries: TaskHistoryEntry[] }
-  | { type: "APPEND_STREAM_LINE"; line: string }
+  | { type: "APPLY_STREAM_EVENT"; line: string }
+  | { type: "ADD_ACTIVITY_NOTE"; text: string }
   | { type: "CLEAR_STREAM" }
   | { type: "SET_SETTINGS_OPEN"; open: boolean }
   | {

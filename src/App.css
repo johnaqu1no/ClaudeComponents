@@ -1618,3 +1618,357 @@
   font-style: italic;
   padding: 6px 0;
 }
+
+/* ========== Activity feed (what Claude is doing) ========== */
+.activity-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: #cdd6f4;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+}
+
+.activity-text {
+  line-height: 1.55;
+  word-break: break-word;
+}
+
+.activity-text > :first-child {
+  margin-top: 0;
+}
+
+.activity-text > :last-child {
+  margin-bottom: 0;
+}
+
+.activity-text p,
+.activity-text ul,
+.activity-text ol,
+.activity-text pre,
+.activity-text table,
+.activity-text blockquote {
+  margin: 6px 0;
+}
+
+.activity-text ul,
+.activity-text ol {
+  padding-left: 20px;
+}
+
+.activity-text li + li {
+  margin-top: 2px;
+}
+
+.activity-text h1,
+.activity-text h2,
+.activity-text h3,
+.activity-text h4 {
+  font-size: 13px;
+  font-weight: 700;
+  margin: 10px 0 4px;
+}
+
+.activity-text strong {
+  color: #fff;
+}
+
+.activity-text a {
+  color: #89b4fa;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.activity-text code {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  font-size: 12px;
+  background: #313244;
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.activity-text pre {
+  background: #181825;
+  border: 1px solid #313244;
+  border-radius: 6px;
+  padding: 8px 10px;
+  overflow-x: auto;
+}
+
+.activity-text pre code {
+  background: none;
+  padding: 0;
+}
+
+.activity-text blockquote {
+  border-left: 3px solid #45475a;
+  padding-left: 10px;
+  color: #a6adc8;
+}
+
+.activity-text table {
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.activity-text th,
+.activity-text td {
+  border: 1px solid #313244;
+  padding: 4px 8px;
+  text-align: left;
+}
+
+.activity-text th {
+  background: #181825;
+}
+
+.activity-tool,
+.activity-group,
+.activity-thinking {
+  border-radius: 6px;
+}
+
+.activity-tool-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  padding: 3px 4px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: #a6adc8;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.activity-tool-header:hover {
+  background: #1e1e2e;
+  color: #cdd6f4;
+}
+
+.activity-status {
+  flex-shrink: 0;
+  width: 14px;
+  margin-right: 0;
+  text-align: center;
+  font-size: 11px;
+}
+
+.activity-status.done {
+  color: #a6e3a1;
+}
+
+.activity-status.failed {
+  color: #f38ba8;
+}
+
+.activity-verb {
+  flex-shrink: 0;
+  max-width: 70%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-detail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #cdd6f4;
+}
+
+code.activity-detail {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  font-size: 11px;
+  background: #313244;
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.activity-failed-count {
+  color: #f38ba8;
+}
+
+.activity-chevron {
+  margin-left: auto;
+  flex-shrink: 0;
+  color: #585b70;
+  transition: transform 0.15s;
+}
+
+.activity-chevron.open {
+  transform: rotate(90deg);
+}
+
+.activity-tool-body,
+.activity-group-body {
+  margin: 2px 0 4px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.activity-group-body {
+  gap: 0;
+  border-left: 1px solid #313244;
+  padding-left: 6px;
+}
+
+.activity-path {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  font-size: 11px;
+  color: #6c7086;
+  word-break: break-all;
+}
+
+.activity-pre {
+  margin: 0;
+  max-height: 260px;
+  overflow: auto;
+  padding: 6px 8px;
+  background: #181825;
+  border: 1px solid #313244;
+  border-radius: 6px;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #bac2de;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.activity-pre.error {
+  color: #f38ba8;
+  border-color: rgba(243, 139, 168, 0.35);
+}
+
+.activity-command {
+  color: #f9e2af;
+}
+
+.activity-diff .diff-del {
+  color: #f38ba8;
+  background: rgba(243, 139, 168, 0.08);
+}
+
+.activity-diff .diff-add {
+  color: #a6e3a1;
+  background: rgba(166, 227, 161, 0.08);
+}
+
+.activity-thinking-text {
+  margin: 2px 0 4px 20px;
+  font-size: 12px;
+  font-style: italic;
+  color: #7f849c;
+  white-space: pre-wrap;
+  line-height: 1.5;
+}
+
+.activity-note {
+  font-size: 12px;
+  color: #f9e2af;
+  padding: 2px 4px;
+}
+
+/* ========== Screenshot toasts ========== */
+.screenshot-toasts {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  z-index: 950;
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 8px;
+  /* Toasts that outgrow the stack overflow upward, where they get faded out. */
+  overflow: visible;
+  pointer-events: none;
+}
+
+.screenshot-toast {
+  width: 280px;
+  flex-shrink: 0;
+  background: #1e1e2e;
+  border: 1px solid #45475a;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+  pointer-events: auto;
+  animation: screenshot-toast-in 0.2s ease-out;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.screenshot-toast.fading {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
+@keyframes screenshot-toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.screenshot-toast-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 10px;
+  border-bottom: 1px solid #313244;
+}
+
+.screenshot-toast-caption {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  color: #a6adc8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.screenshot-toast-close {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: #7f849c;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.screenshot-toast-close:hover {
+  background: #313244;
+  color: #cdd6f4;
+}
+
+.screenshot-toast-image {
+  display: block;
+  width: 100%;
+  max-height: 180px;
+  object-fit: contain;
+  background: #11111b;
+}
+
+.activity-image {
+  max-width: 100%;
+  max-height: 240px;
+  object-fit: contain;
+  align-self: flex-start;
+  border: 1px solid #313244;
+  border-radius: 6px;
+}
