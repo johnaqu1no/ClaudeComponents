@@ -2,12 +2,43 @@ import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useAppState, useAppDispatch } from "../stores/app-store";
 import { CLAUDE_MODELS } from "../lib/models";
+import { listBranches, switchBranch } from "../lib/git-service";
 
 export function SettingsPanel() {
-  const { settingsOpen, repoPath, devServerUrl, model, recentProjects } = useAppState();
+  const { settingsOpen, repoPath, devServerUrl, model, recentProjects, branch, phase } = useAppState();
   const dispatch = useAppDispatch();
 
   const [urlInput, setUrlInput] = useState(devServerUrl || "");
+
+  const [branches, setBranches] = useState<string[]>([]);
+  const [newBranch, setNewBranch] = useState("");
+  const [branchError, setBranchError] = useState<string | null>(null);
+  const [switching, setSwitching] = useState(false);
+
+  useEffect(() => {
+    if (!settingsOpen || !repoPath) return;
+    listBranches(repoPath)
+      .then(setBranches)
+      .catch(() => setBranches([]));
+  }, [settingsOpen, repoPath, branch]);
+
+  const changeBranch = async (name: string, create: boolean) => {
+    if (!repoPath || !name.trim()) return;
+    setSwitching(true);
+    setBranchError(null);
+    try {
+      await switchBranch(repoPath, name, create);
+      dispatch({ type: "SET_BRANCH", branch: name.trim() });
+      setNewBranch("");
+      // The files on disk just changed, so rescan (which also reloads the preview).
+      dispatch({ type: "SET_REPO", path: repoPath });
+    } catch (err) {
+      setBranchError(String(err));
+    } finally {
+      setSwitching(false);
+    }
+  };
+  const branchLocked = switching || phase === "executing";
 
   // Switching projects swaps the URL too, so the box has to follow it.
   useEffect(() => {
@@ -84,6 +115,54 @@ export function SettingsPanel() {
             </button>
           </div>
         </div>
+
+        {repoPath && branch && (
+          <div className="settings-section">
+            <label className="settings-label">Branch</label>
+            <p className="settings-description">
+              Switch the open folder's git branch, or start a new one from it.
+            </p>
+            <div className="settings-row settings-row-spaced">
+              <select
+                className="settings-input"
+                value={branch}
+                disabled={branchLocked}
+                onChange={(e) => changeBranch(e.target.value, false)}
+              >
+                {!branches.includes(branch) && <option value={branch}>{branch}</option>}
+                {branches.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="settings-row">
+              <input
+                type="text"
+                className="settings-input"
+                placeholder="new-branch-name"
+                value={newBranch}
+                disabled={branchLocked}
+                onChange={(e) => setNewBranch(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") changeBranch(newBranch, true);
+                }}
+              />
+              <button
+                className="btn-primary btn-sm"
+                disabled={branchLocked || !newBranch.trim()}
+                onClick={() => changeBranch(newBranch, true)}
+              >
+                Create
+              </button>
+            </div>
+            {phase === "executing" && (
+              <p className="settings-hint">Claude is working. Switch once the task finishes.</p>
+            )}
+            {branchError && <p className="settings-error">{branchError}</p>}
+          </div>
+        )}
 
         <div className="settings-section">
           <label className="settings-label">Claude Model</label>

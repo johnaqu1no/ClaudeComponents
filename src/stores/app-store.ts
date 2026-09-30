@@ -16,6 +16,7 @@ export const initialState: AppState = {
   devServerUrl: null,
   model: DEFAULT_MODEL_ID,
   recentProjects: [],
+  branch: null,
   selectedComponent: null,
   selectedElement: null,
   taskHistory: [],
@@ -97,6 +98,8 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       };
     case "SET_MODEL":
       return { ...state, model: action.model };
+    case "SET_BRANCH":
+      return { ...state, branch: action.branch };
     case "SELECT_COMPONENT":
       return { ...state, selectedComponent: action.component, selectedElement: action.element ?? null };
     case "CLEAR_SELECTED_COMPONENT":

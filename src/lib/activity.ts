@@ -126,6 +126,27 @@ export function applyStreamLine(items: ActivityItem[], line: string): ActivityIt
   return items;
 }
 
+/**
+ * How full the context window is after this event, from the usage Claude Code
+ * reports on each main-thread assistant message. Null for any other event.
+ */
+export function contextFromStreamLine(line: string): number | null {
+  try {
+    const data = JSON.parse(line);
+    if (data.type !== "assistant" || data.parent_tool_use_id) return null;
+    const usage = data.message?.usage;
+    if (!usage) return null;
+    const total =
+      (usage.input_tokens ?? 0) +
+      (usage.cache_read_input_tokens ?? 0) +
+      (usage.cache_creation_input_tokens ?? 0) +
+      (usage.output_tokens ?? 0);
+    return total > 0 ? total : null;
+  } catch {
+    return null;
+  }
+}
+
 export function noteItem(text: string, items: ActivityItem[]): ActivityItem {
   return { kind: "note", id: `note:${items.length}:${text.length}`, text };
 }

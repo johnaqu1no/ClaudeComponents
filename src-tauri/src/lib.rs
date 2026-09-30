@@ -1,4 +1,5 @@
 mod proxy;
+mod usage;
 
 use serde::Serialize;
 use std::fs;
@@ -452,6 +453,66 @@ async fn git_unpushed_count(cwd: String) -> Result<u32, String> {
     count_str.parse::<u32>().map_err(|e| format!("Failed to parse count: {}", e))
 }
 
+async fn git_output(cwd: &str, args: &[&str]) -> Result<std::process::Output, String> {
+    tokio::process::Command::new("git")
+        .args(args)
+        .current_dir(cwd)
+        .output()
+        .await
+        .map_err(|e| format!("Failed to run git: {}", e))
+}
+
+#[tauri::command]
+async fn git_current_branch(cwd: String) -> Result<String, String> {
+    let output = git_output(&cwd, &["rev-parse", "--abbrev-ref", "HEAD"]).await?;
+    if !output.status.success() {
+        return Err("Not a git repository".to_string());
+    }
+    let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    // A detached HEAD reads as "HEAD", so show the commit instead.
+    if branch == "HEAD" {
+        let sha = git_output(&cwd, &["rev-parse", "--short", "HEAD"]).await?;
+        return Ok(format!("detached at {}", String::from_utf8_lossy(&sha.stdout).trim()));
+    }
+    Ok(branch)
+}
+
+#[tauri::command]
+async fn git_list_branches(cwd: String) -> Result<Vec<String>, String> {
+    let output = git_output(&cwd, &["branch", "--format=%(refname:short)"]).await?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_string)
+        .collect())
+}
+
+/// Switches to a local branch, or creates it from the current one. Git refuses
+/// when uncommitted changes would be overwritten, and that message is passed on.
+#[tauri::command]
+async fn git_switch_branch(cwd: String, branch: String, create: bool) -> Result<(), String> {
+    let branch = branch.trim();
+    if branch.is_empty() || branch.starts_with('-') {
+        return Err("Enter a branch name.".to_string());
+    }
+    let args: Vec<&str> = if create { vec!["switch", "-c", branch] } else { vec!["switch", branch] };
+    let output = git_output(&cwd, &args).await?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+    }
+}
+
+#[tauri::command]
+async fn claude_plan_usage() -> Result<usage::PlanUsage, String> {
+    usage::plan_usage().await
+}
+
 #[derive(Serialize)]
 pub struct GitPushResult {
     success: bool,
@@ -555,6 +616,10 @@ pub fn run() {
             git_has_changes,
             git_unpushed_count,
             git_push,
+            git_current_branch,
+            git_list_branches,
+            git_switch_branch,
+            claude_plan_usage,
             start_inspector_proxy,
             stop_inspector_proxy,
         ])

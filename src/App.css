@@ -673,11 +673,6 @@
 }
 
 /* ========== Context Usage ========== */
-.context-usage { padding: 6px 14px; border-bottom: 1px solid #313244; }
-.context-usage-label { display: flex; justify-content: space-between; font-size: 11px; color: #6c7086; margin-bottom: 4px; }
-.context-usage-bar { height: 4px; background: #313244; border-radius: 2px; overflow: hidden; }
-.context-usage-fill { height: 100%; background: #6366f1; border-radius: 2px; transition: width 0.3s; }
-.context-usage-fill.warning { background: #f9e2af; }
 
 /* ========== Message Queue ========== */
 .message-queue {
@@ -1971,4 +1966,103 @@ code.activity-detail {
   align-self: flex-start;
   border: 1px solid #313244;
   border-radius: 6px;
+}
+
+.settings-hint,
+.settings-error {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+}
+
+.settings-hint {
+  color: #6c7086;
+}
+
+.settings-error {
+  color: #f38ba8;
+}
+
+/* ========== Stats strip (context, plan usage, branch) ========== */
+.stats-strip {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  padding: 6px 14px 8px;
+  border-bottom: 1px solid #313244;
+}
+
+.stats-meter {
+  flex: 1;
+  min-width: 0;
+}
+
+.stats-meter:first-child {
+  flex: 1.3;
+}
+
+.stats-meter-label {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 11px;
+  color: #6c7086;
+  margin-bottom: 4px;
+  white-space: nowrap;
+}
+
+.stats-meter-value {
+  color: #a6adc8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stats-meter-bar {
+  height: 4px;
+  background: #313244;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.stats-meter-fill {
+  height: 100%;
+  background: #6366f1;
+  border-radius: 2px;
+  transition: width 0.3s;
+}
+
+.stats-meter-fill.warning {
+  background: #f9e2af;
+}
+
+.stats-meter-fill.danger {
+  background: #f38ba8;
+}
+
+.stats-branch {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 34%;
+  padding: 3px 8px;
+  border: 1px solid #45475a;
+  border-radius: 999px;
+  background: #181825;
+  color: #cdd6f4;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.stats-branch:hover {
+  border-color: #6366f1;
+}
+
+.stats-branch span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

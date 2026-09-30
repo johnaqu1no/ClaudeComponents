@@ -127,6 +127,8 @@ export interface AppState {
   model: string;
   /** Most recently used first. */
   recentProjects: RecentProject[];
+  /** Checked-out git branch of the open folder, when it is a repository. */
+  branch: string | null;
   selectedComponent: ComponentInfo | null;
   selectedElement: ElementContext | null;
   taskHistory: TaskHistoryEntry[];
@@ -154,6 +156,7 @@ export type AppAction =
   | { type: "SET_PROXY_PORT"; port: number | null }
   | { type: "SET_DEV_SERVER_URL"; url: string | null }
   | { type: "SET_MODEL"; model: string }
+  | { type: "SET_BRANCH"; branch: string | null }
   | { type: "OPEN_PROJECT"; repoPath: string; devServerUrl: string | null }
   | { type: "SELECT_COMPONENT"; component: ComponentInfo | null; element?: ElementContext | null }
   | { type: "CLEAR_SELECTED_COMPONENT" }

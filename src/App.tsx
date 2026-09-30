@@ -13,12 +13,16 @@ import { ActivityFeed } from "./components/ActivityFeed";
 import {
   applyStreamLine,
   compactActivity,
+  contextFromStreamLine,
   imagesInStreamLine,
   noteItem,
   toolLabel,
   type ActivityItem,
 } from "./lib/activity";
 import { ScreenshotToasts, type ScreenshotToast } from "./components/ScreenshotToasts";
+import { StatsStrip } from "./components/StatsStrip";
+import { fetchPlanUsage, type PlanUsage } from "./lib/usage";
+import { getCurrentBranch } from "./lib/git-service";
 import { TaskHistory } from "./components/TaskHistory";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { AskUserModal } from "./components/AskUserModal";
@@ -38,12 +42,6 @@ import { listen } from "@tauri-apps/api/event";
 import type { JSONContent } from "@tiptap/react";
 import type { ComponentInfo, FileSnapshot, QueuedMessage, UserQuestion, ToolApproval } from "./types";
 import "./App.css";
-
-function formatTokens(n: number): string {
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1).replace(/\.0$/, "") + "M";
-  if (n >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, "") + "K";
-  return String(n);
-}
 
 function detectUserQuestion(line: string): UserQuestion | null {
   try {
@@ -112,6 +110,8 @@ function AppInner() {
   const [autoAccept, setAutoAccept] = useState(false);
   const autoAcceptRef = useRef(false);
   const [contextTokens, setContextTokens] = useState<number | null>(null);
+  const [planUsage, setPlanUsage] = useState<PlanUsage | null>(null);
+  const [planError, setPlanError] = useState<string | null>(null);
   const userQuestionRef = useRef<UserQuestion | null>(null);
   const toolApprovalRef = useRef<ToolApproval | null>(null);
   const [autoApproveTools, setAutoApproveTools] = useState(false);
@@ -186,6 +186,10 @@ function AppInner() {
     const unlistenPromise = listen<string>("claude-stream", (event) => {
       dispatch({ type: "APPLY_STREAM_EVENT", line: event.payload });
       taskActivityRef.current = applyStreamLine(taskActivityRef.current, event.payload);
+
+      // Each assistant message reports how full the context is at that point.
+      const context = contextFromStreamLine(event.payload);
+      if (context !== null) setContextTokens(context);
 
       // Any image a tool hands back is a screenshot Claude took or looked at.
       const images = imagesInStreamLine(event.payload);
@@ -421,10 +425,6 @@ function AppInner() {
           sessionIdRef.current = result.sessionId;
         }
         dispatch({ type: "SET_EXECUTION_RESULT", result });
-        const turnTokens = (result.inputTokens ?? 0) + (result.outputTokens ?? 0);
-        if (turnTokens > 0) {
-          setContextTokens((prev) => (prev ?? 0) + turnTokens);
-        }
 
         let diffs = await computeDiffs(state.repoPath, snapshotRef.current);
 
@@ -463,11 +463,6 @@ function AppInner() {
           }
           result = retryResult;
           dispatch({ type: "SET_EXECUTION_RESULT", result: retryResult });
-          const retryTokens =
-            (retryResult.inputTokens ?? 0) + (retryResult.outputTokens ?? 0);
-          if (retryTokens > 0) {
-            setContextTokens((prev) => (prev ?? 0) + retryTokens);
-          }
           diffs = await computeDiffs(state.repoPath, snapshotRef.current);
         }
 
@@ -807,6 +802,44 @@ Rules:
     return () => window.removeEventListener("webview-location", handleLocation);
   }, []);
 
+  // Plan usage moves with every request, so refresh it on a timer and after each task.
+  const refreshPlanUsage = useCallback(() => {
+    fetchPlanUsage()
+      .then((usage) => {
+        setPlanUsage(usage);
+        setPlanError(null);
+      })
+      .catch((err) => setPlanError(String(err)));
+  }, []);
+  useEffect(() => {
+    refreshPlanUsage();
+    const timer = setInterval(refreshPlanUsage, 60_000);
+    return () => clearInterval(timer);
+  }, [refreshPlanUsage]);
+  useEffect(() => {
+    if (state.phase === "ready") refreshPlanUsage();
+  }, [state.phase, refreshPlanUsage]);
+
+  // The branch can change outside the app too (a terminal, Claude itself), so poll it.
+  useEffect(() => {
+    const repo = state.repoPath;
+    if (!repo) {
+      dispatch({ type: "SET_BRANCH", branch: null });
+      return;
+    }
+    const check = () =>
+      getCurrentBranch(repo)
+        .then((branch) => dispatch({ type: "SET_BRANCH", branch }))
+        .catch(() => dispatch({ type: "SET_BRANCH", branch: null }));
+    check();
+    const timer = setInterval(check, 15_000);
+    window.addEventListener("focus", check);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", check);
+    };
+  }, [state.repoPath, state.phase]);
+
   // Auto-scroll streaming output
   const streamRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -1056,25 +1089,14 @@ Rules:
                 </div>
               )}
 
-              {/* Context usage bar */}
-              {contextTokens !== null && (() => {
-                const contextWindow = modelById(state.model).contextWindow;
-                const usagePct = (contextTokens / contextWindow) * 100;
-                return (
-                  <div className="context-usage">
-                    <div className="context-usage-label">
-                      <span>Context</span>
-                      <span>{formatTokens(contextTokens)} / {formatTokens(contextWindow)}</span>
-                    </div>
-                    <div className="context-usage-bar">
-                      <div
-                        className={`context-usage-fill${usagePct > 80 ? " warning" : ""}`}
-                        style={{ width: `${Math.min(usagePct, 100)}%` }}
-                      />
-                    </div>
-                  </div>
-                );
-              })()}
+              <StatsStrip
+                contextTokens={contextTokens}
+                contextWindow={modelById(state.model).contextWindow}
+                planUsage={planUsage}
+                planError={planError}
+                branch={state.branch}
+                onBranchClick={() => dispatch({ type: "SET_SETTINGS_OPEN", open: true })}
+              />
 
               {/* Message queue */}
               {queue.length > 0 && (
