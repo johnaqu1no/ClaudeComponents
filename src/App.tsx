@@ -612,6 +612,70 @@ function AppInner() {
     }
   }, [state.phase, refreshUnpushedCount]);
 
+  /**
+   * Runs Claude for something other than a user prompt (commit, compact) as a
+   * turn in the chat, so its progress shows live and is kept afterwards.
+   */
+  const runSideTask = useCallback(
+    async ({ label, prompt, tools, resume }: { label: string; prompt: string; tools: string; resume: boolean }) => {
+      if (!state.repoPath) return;
+      const taskId = crypto.randomUUID();
+      currentTaskIdRef.current = taskId;
+      taskActivityRef.current = [];
+      dispatch({
+        type: "ADD_TASK_HISTORY",
+        entry: { id: taskId, taskText: label, promptText: label, timestamp: Date.now(), status: "running", result: null, diffs: [] },
+      });
+      dispatch({ type: "SET_PHASE", phase: "executing" });
+      dispatch({ type: "CLEAR_STREAM" });
+
+      try {
+        const result = await executeClaudeCodeInteractive(
+          prompt,
+          state.repoPath,
+          state.model,
+          resume ? sessionIdRef.current : undefined,
+          tools
+        );
+        if (resume && result.sessionId) sessionIdRef.current = result.sessionId;
+        dispatch({ type: "SET_EXECUTION_RESULT", result });
+        // Stop already marked it and moved on; don't overwrite that.
+        if (currentTaskIdRef.current === taskId) {
+          dispatch({
+            type: "UPDATE_TASK_HISTORY",
+            id: taskId,
+            updates: {
+              status: result.exitCode === 0 ? "success" : "failed",
+              result,
+              activity: compactActivity(taskActivityRef.current),
+            },
+          });
+        }
+      } catch (err) {
+        dispatch({ type: "SET_ERROR", error: `${label} failed: ${err}` });
+        dispatch({
+          type: "UPDATE_TASK_HISTORY",
+          id: taskId,
+          updates: { status: "failed", activity: compactActivity(taskActivityRef.current) },
+        });
+      } finally {
+        if (currentTaskIdRef.current === taskId) currentTaskIdRef.current = null;
+        dispatch({ type: "SET_PHASE", phase: "ready" });
+        dispatch({ type: "CLEAR_STREAM" });
+      }
+    },
+    [state.repoPath, state.model]
+  );
+
+  // Summarises the chat's session so it keeps going with a smaller context.
+  const handleCompact = useCallback(async () => {
+    if (!sessionIdRef.current) {
+      dispatch({ type: "SET_ERROR", error: "Nothing to compact yet. Send a message first." });
+      return;
+    }
+    await runSideTask({ label: "Compact conversation", prompt: "/compact", tools: "Read", resume: true });
+  }, [runSideTask]);
+
   // Handle commit via Claude
   const handleCommit = useCallback(async () => {
     if (!state.repoPath) return;
@@ -626,22 +690,6 @@ function AppInner() {
       return;
     }
 
-    const taskId = crypto.randomUUID();
-    const taskText = "Commit changes";
-    dispatch({
-      type: "ADD_TASK_HISTORY",
-      entry: {
-        id: taskId,
-        taskText,
-        timestamp: Date.now(),
-        status: "running",
-        result: null,
-        diffs: [],
-      },
-    });
-    dispatch({ type: "SET_PHASE", phase: "executing" });
-    dispatch({ type: "CLEAR_STREAM" });
-
     const commitPrompt = `You are a git commit assistant. Review the current uncommitted changes and create well-scoped git commits with clear commit messages.
 
 Rules:
@@ -655,34 +703,12 @@ Rules:
 
     commitFlowRef.current = true;
     try {
-      const result = await executeClaudeCodeInteractive(
-        commitPrompt,
-        state.repoPath,
-        state.model,
-        undefined, // fresh session, no resume
-        "Read,Bash"
-      );
-      dispatch({ type: "SET_EXECUTION_RESULT", result });
-      dispatch({ type: "SET_PHASE", phase: "ready" });
-      dispatch({ type: "CLEAR_STREAM" });
-      dispatch({
-        type: "UPDATE_TASK_HISTORY",
-        id: taskId,
-        updates: { status: result.exitCode === 0 ? "success" : "failed", result },
-      });
-    } catch (err) {
-      dispatch({ type: "SET_ERROR", error: `Commit failed: ${err}` });
-      dispatch({ type: "SET_PHASE", phase: "ready" });
-      dispatch({ type: "CLEAR_STREAM" });
-      dispatch({
-        type: "UPDATE_TASK_HISTORY",
-        id: taskId,
-        updates: { status: "failed" },
-      });
+      // A fresh session: committing should not see, or add to, the chat's context.
+      await runSideTask({ label: "Commit changes", prompt: commitPrompt, tools: "Read,Bash", resume: false });
     } finally {
       commitFlowRef.current = false;
     }
-  }, [state.repoPath, state.model]);
+  }, [state.repoPath, runSideTask]);
 
   // Handle sync (push)
   const handleSync = useCallback(async () => {
@@ -1032,6 +1058,14 @@ Rules:
                       disabled={state.phase === "executing"}
                     >
                       New Chat
+                    </button>
+                    <button
+                      className="btn-ghost"
+                      onClick={handleCompact}
+                      title="Summarise this chat so it uses less context (Claude Code's /compact)"
+                      disabled={state.phase === "executing" || chatEntries.length === 0}
+                    >
+                      Compact
                     </button>
                     {state.taskHistory.length > 0 && (
                       <button

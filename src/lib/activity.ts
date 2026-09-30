@@ -118,6 +118,19 @@ export function applyStreamLine(items: ActivityItem[], line: string): ActivityIt
     });
   }
 
+  if (data.type === "system" && (data as { subtype?: string }).subtype === "compact_boundary") {
+    const meta = (data as { compact_metadata?: { pre_tokens?: number; post_tokens?: number } }).compact_metadata;
+    const size = (n?: number) => (n ? `${Math.round(n / 100) / 10}K` : "?");
+    return [
+      ...items,
+      {
+        kind: "note",
+        id: `compact:${items.length}`,
+        text: `Compacted the conversation: ${size(meta?.pre_tokens)} → ${size(meta?.post_tokens)} tokens`,
+      },
+    ];
+  }
+
   // The final result repeats Claude's last message, so only a failure adds anything.
   if (data.type === "result" && data.is_error) {
     return [...items, { kind: "note", id: `result:${items.length}`, text: data.result || "Claude stopped with an error." }];
@@ -133,6 +146,10 @@ export function applyStreamLine(items: ActivityItem[], line: string): ActivityIt
 export function contextFromStreamLine(line: string): number | null {
   try {
     const data = JSON.parse(line);
+    // Compacting shrinks the context without an assistant reply to report it.
+    if (data.type === "system" && data.subtype === "compact_boundary") {
+      return data.compact_metadata?.post_tokens ?? null;
+    }
     if (data.type !== "assistant" || data.parent_tool_use_id) return null;
     const usage = data.message?.usage;
     if (!usage) return null;
