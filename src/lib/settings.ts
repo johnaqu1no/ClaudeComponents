@@ -1,12 +1,13 @@
 import { invoke } from "@tauri-apps/api/core";
 import { appDataDir } from "@tauri-apps/api/path";
-import type { TaskHistoryEntry } from "../types";
+import type { RecentProject, TaskHistoryEntry } from "../types";
 
 export interface PersistedSettings {
   repoPath: string | null;
   devServerUrl: string | null;
   /** Missing in settings saved before model selection existed. */
   model?: string | null;
+  recentProjects?: RecentProject[];
 }
 
 const SETTINGS_FILE = "settings.json";

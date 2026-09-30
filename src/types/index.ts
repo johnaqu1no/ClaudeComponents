@@ -103,6 +103,13 @@ export interface TaskHistoryEntry {
   chatLines?: string[];
 }
 
+/** A folder opened before, and the dev server it was previewed on. */
+export interface RecentProject {
+  repoPath: string;
+  devServerUrl: string | null;
+  lastUsedAt: number;
+}
+
 export interface AppState {
   phase: AppPhase;
   repoPath: string | null;
@@ -116,6 +123,8 @@ export interface AppState {
   devServerUrl: string | null;
   /** Claude model id passed to the CLI. */
   model: string;
+  /** Most recently used first. */
+  recentProjects: RecentProject[];
   selectedComponent: ComponentInfo | null;
   selectedElement: ElementContext | null;
   taskHistory: TaskHistoryEntry[];
@@ -142,6 +151,7 @@ export type AppAction =
   | { type: "SET_PROXY_PORT"; port: number | null }
   | { type: "SET_DEV_SERVER_URL"; url: string | null }
   | { type: "SET_MODEL"; model: string }
+  | { type: "OPEN_PROJECT"; repoPath: string; devServerUrl: string | null }
   | { type: "SELECT_COMPONENT"; component: ComponentInfo | null; element?: ElementContext | null }
   | { type: "CLEAR_SELECTED_COMPONENT" }
   | { type: "ADD_TASK_HISTORY"; entry: TaskHistoryEntry }
@@ -151,7 +161,13 @@ export type AppAction =
   | { type: "APPEND_STREAM_LINE"; line: string }
   | { type: "CLEAR_STREAM" }
   | { type: "SET_SETTINGS_OPEN"; open: boolean }
-  | { type: "LOAD_SETTINGS"; repoPath: string | null; devServerUrl: string | null; model: string | null }
+  | {
+      type: "LOAD_SETTINGS";
+      repoPath: string | null;
+      devServerUrl: string | null;
+      model: string | null;
+      recentProjects: RecentProject[];
+    }
   | { type: "SET_USER_QUESTION"; question: UserQuestion }
   | { type: "CLEAR_USER_QUESTION" }
   | { type: "SET_TOOL_APPROVAL"; approval: ToolApproval }

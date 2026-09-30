@@ -1,13 +1,18 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useAppState, useAppDispatch } from "../stores/app-store";
 import { CLAUDE_MODELS } from "../lib/models";
 
 export function SettingsPanel() {
-  const { settingsOpen, repoPath, devServerUrl, model } = useAppState();
+  const { settingsOpen, repoPath, devServerUrl, model, recentProjects } = useAppState();
   const dispatch = useAppDispatch();
 
   const [urlInput, setUrlInput] = useState(devServerUrl || "");
+
+  // Switching projects swaps the URL too, so the box has to follow it.
+  useEffect(() => {
+    setUrlInput(devServerUrl || "");
+  }, [devServerUrl]);
 
   if (!settingsOpen) return null;
 
@@ -45,6 +50,31 @@ export function SettingsPanel() {
           <p className="settings-description">
             The folder containing the React components to scan.
           </p>
+          {recentProjects.length > 0 && (
+            <div className="settings-row settings-row-spaced">
+              <select
+                className="settings-input"
+                value={repoPath ?? ""}
+                onChange={(e) => {
+                  const project = recentProjects.find((entry) => entry.repoPath === e.target.value);
+                  if (project) {
+                    dispatch({
+                      type: "OPEN_PROJECT",
+                      repoPath: project.repoPath,
+                      devServerUrl: project.devServerUrl,
+                    });
+                  }
+                }}
+              >
+                {!repoPath && <option value="">Recent projects</option>}
+                {recentProjects.map((project) => (
+                  <option key={project.repoPath} value={project.repoPath} title={project.repoPath}>
+                    {projectLabel(project.repoPath, project.devServerUrl)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <div className="settings-row">
             <span className="settings-path">
               {repoPath || "No folder selected"}
@@ -101,4 +131,18 @@ export function SettingsPanel() {
       </div>
     </div>
   );
+}
+
+/**
+ * "MCPROS/Web  ·  127.0.0.1:5173". The parent folder is kept because so many
+ * projects are just "web" or "client" on their own.
+ */
+function projectLabel(repoPath: string, devServerUrl: string | null): string {
+  const name = repoPath.split("/").filter(Boolean).slice(-2).join("/") || repoPath;
+  if (!devServerUrl) return `${name}  ·  no dev server`;
+  try {
+    return `${name}  ·  ${new URL(devServerUrl).host}`;
+  } catch {
+    return `${name}  ·  ${devServerUrl}`;
+  }
 }

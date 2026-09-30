@@ -1,5 +1,5 @@
 import { createContext, useContext, type Dispatch } from "react";
-import type { AppState, AppAction } from "../types";
+import type { AppState, AppAction, RecentProject } from "../types";
 import { DEFAULT_MODEL_ID } from "../lib/models";
 
 export const initialState: AppState = {
@@ -14,6 +14,7 @@ export const initialState: AppState = {
   proxyPort: null,
   devServerUrl: null,
   model: DEFAULT_MODEL_ID,
+  recentProjects: [],
   selectedComponent: null,
   selectedElement: null,
   taskHistory: [],
@@ -25,12 +26,43 @@ export const initialState: AppState = {
   isSyncing: false,
 };
 
+const MAX_RECENT_PROJECTS = 10;
+
+/** Moves the project to the front with its latest URL, keeping the list short. */
+function rememberProject(
+  list: RecentProject[],
+  repoPath: string | null,
+  devServerUrl: string | null
+): RecentProject[] {
+  if (!repoPath) return list;
+  const rest = list.filter((entry) => entry.repoPath !== repoPath);
+  return [{ repoPath, devServerUrl, lastUsedAt: Date.now() }, ...rest].slice(0, MAX_RECENT_PROJECTS);
+}
+
 export function appReducer(state: AppState, action: AppAction): AppState {
   switch (action.type) {
     case "SET_PHASE":
       return { ...state, phase: action.phase, error: null };
-    case "SET_REPO":
-      return { ...state, repoPath: action.path, phase: "scanning" };
+    case "SET_REPO": {
+      // A folder opened before comes back with the dev server it used.
+      const known = state.recentProjects.find((entry) => entry.repoPath === action.path);
+      const devServerUrl = known ? known.devServerUrl : state.devServerUrl;
+      return {
+        ...state,
+        repoPath: action.path,
+        devServerUrl,
+        phase: "scanning",
+        recentProjects: rememberProject(state.recentProjects, action.path, devServerUrl),
+      };
+    }
+    case "OPEN_PROJECT":
+      return {
+        ...state,
+        repoPath: action.repoPath,
+        devServerUrl: action.devServerUrl,
+        phase: "scanning",
+        recentProjects: rememberProject(state.recentProjects, action.repoPath, action.devServerUrl),
+      };
     case "SET_COMPONENTS":
       return { ...state, components: action.components, phase: "ready" };
     case "SET_DIFFS":
@@ -57,7 +89,11 @@ export function appReducer(state: AppState, action: AppAction): AppState {
     case "SET_PROXY_PORT":
       return { ...state, proxyPort: action.port };
     case "SET_DEV_SERVER_URL":
-      return { ...state, devServerUrl: action.url };
+      return {
+        ...state,
+        devServerUrl: action.url,
+        recentProjects: rememberProject(state.recentProjects, state.repoPath, action.url),
+      };
     case "SET_MODEL":
       return { ...state, model: action.model };
     case "SELECT_COMPONENT":
@@ -88,6 +124,11 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         ...state,
         devServerUrl: action.devServerUrl,
         model: action.model ?? state.model,
+        // Settings saved before the history existed still seed it with their folder.
+        recentProjects:
+          action.recentProjects.length > 0
+            ? action.recentProjects
+            : rememberProject([], action.repoPath, action.devServerUrl),
       };
       if (action.repoPath) {
         next.repoPath = action.repoPath;
@@ -113,6 +154,7 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         claudeAvailable: state.claudeAvailable,
         devServerUrl: state.devServerUrl,
         model: state.model,
+        recentProjects: state.recentProjects,
         proxyPort: state.proxyPort,
       };
     default:

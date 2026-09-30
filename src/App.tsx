@@ -233,12 +233,13 @@ function AppInner() {
       dispatch({ type: "SET_CLAUDE_AVAILABLE", available });
     });
     loadSettings().then((settings) => {
-      if (settings.repoPath || settings.devServerUrl || settings.model) {
+      if (settings.repoPath || settings.devServerUrl || settings.model || settings.recentProjects?.length) {
         dispatch({
           type: "LOAD_SETTINGS",
           repoPath: settings.repoPath,
           devServerUrl: settings.devServerUrl,
           model: settings.model ?? null,
+          recentProjects: settings.recentProjects ?? [],
         });
       }
     });
@@ -253,22 +254,26 @@ function AppInner() {
   const prevRepoRef = useRef(state.repoPath);
   const prevUrlRef = useRef(state.devServerUrl);
   const prevModelRef = useRef(state.model);
+  const prevRecentRef = useRef(state.recentProjects);
   useEffect(() => {
     if (
       state.repoPath !== prevRepoRef.current ||
       state.devServerUrl !== prevUrlRef.current ||
-      state.model !== prevModelRef.current
+      state.model !== prevModelRef.current ||
+      state.recentProjects !== prevRecentRef.current
     ) {
       prevRepoRef.current = state.repoPath;
       prevUrlRef.current = state.devServerUrl;
       prevModelRef.current = state.model;
+      prevRecentRef.current = state.recentProjects;
       saveSettings({
         repoPath: state.repoPath,
         devServerUrl: state.devServerUrl,
         model: state.model,
+        recentProjects: state.recentProjects,
       });
     }
-  }, [state.repoPath, state.devServerUrl, state.model]);
+  }, [state.repoPath, state.devServerUrl, state.model, state.recentProjects]);
 
   // Persist task history to disk
   const historyInitRef = useRef(true);

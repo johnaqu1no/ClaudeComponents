@@ -1235,6 +1235,10 @@
   gap: 8px;
 }
 
+.settings-row-spaced {
+  margin-bottom: 8px;
+}
+
 .settings-path {
   flex: 1;
   font-size: 12px;
