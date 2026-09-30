@@ -76,6 +76,9 @@ export const TaskEditor = forwardRef<TaskEditorRef, TaskEditorProps>(
           bulletList: false,
           orderedList: false,
           listItem: false,
+          // StarterKit v3 bundles Link, which turns pasted or typed URLs into
+          // hyperlinks. A task prompt only needs the text.
+          link: false,
         }),
         Placeholder.configure({
           placeholder:
@@ -144,6 +147,16 @@ export const TaskEditor = forwardRef<TaskEditorRef, TaskEditorProps>(
         }),
       ],
       editorProps: {
+        // macOS text features (smart quotes, autocorrect, inline predictions)
+        // rewrite what was typed behind ProseMirror's back in WebKit, which is
+        // what made quotes lag and the cursor drift out of sync.
+        attributes: {
+          spellcheck: "false",
+          autocorrect: "off",
+          autocapitalize: "off",
+          autocomplete: "off",
+          writingsuggestions: "false",
+        },
         handlePaste: (_view, event) => {
           const items = event.clipboardData?.items;
           if (!items) return false;

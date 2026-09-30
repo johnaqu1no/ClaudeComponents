@@ -505,7 +505,34 @@ async fn stop_inspector_proxy() -> Result<(), String> {
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// WebKit applies the system's smart quotes, dash and text substitutions to
+/// editable fields, and rewrites the typed text behind the editor's back. That
+/// made quotes lag and the task editor's cursor drift. These keys are WebKit's
+/// per-app switches, set before any webview exists.
+#[cfg(target_os = "macos")]
+fn disable_text_substitutions() {
+    use objc2_foundation::{NSString, NSUserDefaults};
+
+    let defaults = NSUserDefaults::standardUserDefaults();
+    for key in [
+        "WebAutomaticQuoteSubstitutionEnabled",
+        "WebAutomaticDashSubstitutionEnabled",
+        "WebAutomaticTextReplacementEnabled",
+        "WebAutomaticSpellingCorrectionEnabled",
+        "NSAutomaticQuoteSubstitutionEnabled",
+        "NSAutomaticDashSubstitutionEnabled",
+        "NSAutomaticTextReplacementEnabled",
+        "NSAutomaticSpellingCorrectionEnabled",
+        "NSAutomaticInlinePredictionEnabled",
+    ] {
+        defaults.setBool_forKey(false, &NSString::from_str(key));
+    }
+}
+
 pub fn run() {
+    #[cfg(target_os = "macos")]
+    disable_text_substitutions();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
