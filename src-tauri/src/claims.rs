@@ -5,13 +5,16 @@
 //! The first agent to edit a file claims it; any other agent that tries is
 //! refused with a message naming the owner, which Claude reads and works around.
 //! Claims live in a directory unique to this app process and are released when
-//! the owning agent's task ends.
+//! the owning agent's task ends. The same hook also screens Bash commands (see
+//! `shell_guard`).
 
 use std::collections::hash_map::DefaultHasher;
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+
+use crate::shell_guard;
 
 const HOOK_FLAG: &str = "--claim-hook";
 
@@ -71,7 +74,7 @@ pub fn hook_settings(agent_id: &str, agent_label: &str) -> Option<String> {
     let settings = serde_json::json!({
         "hooks": {
             "PreToolUse": [{
-                "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+                "matcher": "Edit|Write|MultiEdit|NotebookEdit|Bash",
                 "hooks": [{ "type": "command", "command": command }]
             }]
         }
@@ -125,6 +128,15 @@ pub fn run_hook_from_args() -> Option<i32> {
     }
     let Ok(event) = serde_json::from_str::<serde_json::Value>(&input) else { return Some(0) };
     let tool_input = &event["tool_input"];
+    if event["tool_name"].as_str() == Some("Bash") {
+        return Some(match shell_guard::check(tool_input["command"].as_str().unwrap_or("")) {
+            Some(message) => {
+                eprintln!("{}", message);
+                2
+            }
+            None => 0,
+        });
+    }
     let Some(raw_path) = tool_input["file_path"].as_str().or_else(|| tool_input["notebook_path"].as_str()) else {
         return Some(0);
     };

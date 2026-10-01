@@ -19,6 +19,12 @@ use tokio::sync::{oneshot, Mutex};
 
 use crate::claims;
 
+/// The user runs their own dev servers alongside the agents, so cleanup must
+/// never reach past what the agent itself started.
+const SYSTEM_NOTE: &str = "The user runs their own dev servers and apps on this machine. If you start a server or \
+     other background process, save its PID ($!) and stop only that PID when done. Never kill processes by name or \
+     port (pkill, killall, kill $(lsof ...), fuser -k): those commands are blocked here.";
+
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct StreamEvent {
@@ -88,6 +94,8 @@ impl AgentManager {
             "stream-json".to_string(),
             "--allowedTools".to_string(),
             req.allowed_tools.clone(),
+            "--append-system-prompt".to_string(),
+            SYSTEM_NOTE.to_string(),
         ];
         if let Some(model) = req.model.as_deref().filter(|m| !m.is_empty()) {
             args.push("--model".to_string());

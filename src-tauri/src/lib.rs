@@ -2,6 +2,7 @@ mod agents;
 mod claims;
 mod proxy;
 mod route;
+mod shell_guard;
 mod usage;
 
 use serde::Serialize;
