@@ -507,7 +507,7 @@ dependencies = [
 
 [[package]]
 name = "claude-components"
-version = "1.4.0"
+version = "1.4.1"
 dependencies = [
  "axum",
  "dirs 5.0.1",
